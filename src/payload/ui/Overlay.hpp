@@ -23,7 +23,11 @@ public:
 private:
     Overlay() = default;
 
-    bool visible_ = true;
+    // Default hidden — the splash briefly announces attachment; the user
+    // explicitly presses the overlay.toggle bind (INS) to open the ClickGui.
+    // Starting visible on attach used to eat game input immediately, which
+    // felt like a freeze.
+    bool visible_ = false;
     int  frame_   = 0;
 
     friend class Engine;   // so set_visible() update flows through ClickGui too
