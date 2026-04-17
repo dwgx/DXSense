@@ -23,7 +23,6 @@ public:
     void             draw()           override;
     void             on_first_show() override;
 
-private:
     struct Row {
         std::string kind;     // Survivor / Hunter / Prop / ...
         std::string cls;      // Python class name
@@ -31,6 +30,11 @@ private:
         std::string extras;   // freeform — hp, pos, flags, etc.
     };
 
+    // Exposed so HUD widgets (Radar) and other panels can read live data.
+    const std::vector<Row>& rows() const { return rows_; }
+    static EntitiesPanel*   global();
+
+private:
     void kick_refresh();
     void absorb_output();
     bool category_enabled(std::string_view kind) const;

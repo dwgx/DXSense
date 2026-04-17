@@ -2,6 +2,7 @@ add_library(dxsense SHARED
     DllMain.cpp
     core/Config.cpp
     core/Engine.cpp
+    core/Keybinds.cpp
     core/Localization.cpp
     core/Logger.cpp
     game/GameMemory.cpp
@@ -12,6 +13,7 @@ add_library(dxsense SHARED
     ui/Overlay.cpp
     ui/framework/ClickGui.cpp
     ui/framework/Fonts.cpp
+    ui/framework/Splash.cpp
     ui/framework/Theme.cpp
     ui/hud/HudManager.cpp
     ui/hud/widgets/CrosshairWidget.cpp

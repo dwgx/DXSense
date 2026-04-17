@@ -19,6 +19,12 @@ namespace dxs {
 PythonReplPanel* python_repl_panel();
 
 namespace {
+EntitiesPanel* g_entities_panel = nullptr;
+}
+
+EntitiesPanel* EntitiesPanel::global() { return g_entities_panel; }
+
+namespace {
 
 // Exhaustive-enough class-name heuristic. We look at every GC-reachable
 // Python object and keep the ones whose type name either ends in "Entity"
@@ -116,6 +122,7 @@ constexpr const char* k_categories[] = {
 }  // namespace
 
 void EntitiesPanel::on_first_show() {
+    g_entities_panel = this;
     auto_refresh_ = Config::instance().get_bool("entities.auto_refresh", true);
     auto hidden   = Config::instance().get("entities.categories_hidden");
     std::istringstream is(hidden);

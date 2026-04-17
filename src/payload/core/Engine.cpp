@@ -10,6 +10,7 @@
 #include "scripting/PythonBridge.hpp"
 #include "ui/Overlay.hpp"
 #include "ui/framework/Fonts.hpp"
+#include "ui/framework/Splash.hpp"
 
 #include <imgui.h>
 
@@ -49,6 +50,7 @@ void Engine::start(void* this_module) {
     fonts::load();
 
     Overlay::instance().configure_style();
+    Overlay::instance().register_keybinds();
     Overlay::instance().register_default_panels();
 
     // Try DX11 first. Future backends (DX12 / Vulkan) slot in here via probing.
@@ -72,6 +74,9 @@ void Engine::start(void* this_module) {
     // Resolve RVA → VA mappings for direct memory access. Safe to call even
     // when the module is absent — subsequent GameMemory::ready() reads false.
     GameMemory::instance().initialize();
+
+    // Kick the boot splash — renders on the very next frame for ~1.4 s.
+    splash::begin();
 }
 
 void Engine::attach_window(HWND hwnd) {

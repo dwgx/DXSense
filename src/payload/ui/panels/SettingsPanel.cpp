@@ -1,6 +1,7 @@
 #include "SettingsPanel.hpp"
 
 #include "core/Config.hpp"
+#include "core/Keybinds.hpp"
 #include "core/Localization.hpp"
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/Theme.hpp"
@@ -46,6 +47,17 @@ void SettingsPanel::draw() {
         ImGui::SameLine();
     }
     ImGui::NewLine();
+
+    ImGui::Dummy(ImVec2(0, 14));
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 14));
+
+    // Keybind editor ----------------------------------------------------------
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
+    ImGui::TextUnformatted("KEYBINDS");
+    ImGui::PopStyleColor();
+    ImGui::Dummy(ImVec2(0, 4));
+    Keybinds::instance().draw_editor();
 
     ImGui::Dummy(ImVec2(0, 14));
     ImGui::Separator();

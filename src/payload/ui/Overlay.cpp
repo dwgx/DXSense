@@ -1,8 +1,10 @@
 #include "Overlay.hpp"
 
 #include "core/Config.hpp"
+#include "core/Keybinds.hpp"
 #include "core/Logger.hpp"
 #include "ui/framework/ClickGui.hpp"
+#include "ui/framework/Splash.hpp"
 #include "ui/framework/Theme.hpp"
 #include "ui/hud/HudManager.hpp"
 #include "ui/hud/widgets/CrosshairWidget.hpp"
@@ -24,9 +26,6 @@
 
 namespace dxs {
 
-namespace {
-constexpr int kToggleKey = VK_INSERT;
-}
 
 Overlay& Overlay::instance() {
     static Overlay o;
@@ -35,6 +34,19 @@ Overlay& Overlay::instance() {
 
 void Overlay::configure_style() {
     theme::apply();
+}
+
+void Overlay::register_keybinds() {
+    auto& kb = Keybinds::instance();
+    kb.register_action("overlay.toggle",
+        Keybinds::Binding{VK_INSERT, false, false, false},
+        "Toggle overlay");
+    kb.register_action("hud.toggle_edit",
+        Keybinds::Binding{VK_F4, false, false, false},
+        "HUD edit mode");
+    kb.register_action("hud.toggle_global",
+        Keybinds::Binding{VK_F3, false, false, false},
+        "HUD global on/off");
 }
 
 void Overlay::register_default_panels() {
@@ -57,22 +69,26 @@ void Overlay::register_default_panels() {
     hud.register_widget(std::make_unique<RadarWidget>());
 }
 
+// Route Overlay::set_visible through the ClickGui so both stay in sync.
+// Defined in the .cpp to keep the ClickGui include out of the header.
+}  // namespace dxs
+namespace dxs {
+void overlay_set_visible_synced(bool v) {
+    Overlay::instance().set_visible(v);
+    ClickGui::instance().set_visible(v);
+}
+
 void Overlay::draw() {
     ++frame_;
     Config::instance().save_if_dirty();   // debounced — safe to spam
-    // HUD always draws (even with overlay toggled off) because it's the
-    // in-viewport information layer — that's its whole reason for existing.
-    HudManager::instance().draw();
-    if (!visible_) return;
-    ClickGui::instance().draw();
+    HudManager::instance().draw();        // always on top of the game
+    if (visible_) ClickGui::instance().draw();
+    splash::draw();                       // rendered last — sits above everything
 }
 
-void Overlay::route_input(UINT msg, WPARAM w, LPARAM /*l*/) {
-    if (msg == WM_KEYDOWN && static_cast<int>(w) == kToggleKey) {
-        visible_ = !visible_;
-        ClickGui::instance().set_visible(visible_);
-        DXS_INFO("overlay visibility: {}", visible_);
-    }
+void Overlay::route_input(UINT /*msg*/, WPARAM /*w*/, LPARAM /*l*/) {
+    // Hotkeys are handled centrally in WndProcHook::thunk via Keybinds.
+    // This path remains reserved for future per-panel shortcut routing.
 }
 
 }  // namespace dxs

@@ -81,14 +81,15 @@ void load() {
         cfg_cjk.OversampleH = 2;
         cfg_cjk.OversampleV = 1;                  // CJK doesn't benefit from V over-sampling
         cfg_cjk.RasterizerMultiply = 1.00f;
-        // Covers the CJK Unified range that actually appears in Simplified
-        // Chinese UI copy. Full Chinese is enormous (>90 MB atlas) — we only
-        // care about what our zh-CN strings need.
+        // GetGlyphRangesChineseFull instead of the narrower "common" set:
+        // the 2500-common list misses plenty of normal CJK characters that
+        // show up in ordinary technical prose (辑 U+8F91, 窗 U+7A97, ...).
+        // The atlas grows but we accept the cost — correctness wins.
         io.Fonts->AddFontFromFileTTF(
             yahei.string().c_str(),
             16.0f,
             &cfg_cjk,
-            io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+            io.Fonts->GetGlyphRangesChineseFull());
     } else {
         DXS_WARN("Fonts: msyh.ttc missing; CJK glyphs will render as ?");
     }

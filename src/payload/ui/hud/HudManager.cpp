@@ -123,14 +123,35 @@ void HudManager::draw() {
             dl->AddRectFilled(pos + size - ImVec2(12, 12), pos + size,
                               theme::to_u32(theme::accent));
 
+            ImGui::PushID(w->id().data());
             ImGui::SetCursorScreenPos(pos);
-            ImGui::InvisibleButton(w->id().data(), size);
+            ImGui::InvisibleButton("##body", size);
             if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
                 ImVec2 delta = ImGui::GetIO().MouseDelta;
                 Slot& s = it->second;
                 s.pos.x += delta.x;
                 s.pos.y += delta.y;
                 set_pos(w->id(), s.pos);
+            }
+            // Right-click the widget body to get per-widget editing menu.
+            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(1))
+                ImGui::OpenPopup("##widget_ctx");
+
+            if (ImGui::BeginPopup("##widget_ctx")) {
+                ImGui::TextDisabled("%s", w->name().data());
+                ImGui::Separator();
+                if (ImGui::MenuItem("Reset position")) {
+                    set_pos(w->id(), w->default_pos());
+                }
+                if (ImGui::MenuItem("Reset size")) {
+                    set_size(w->id(), w->default_size());
+                }
+                if (ImGui::MenuItem("Hide widget")) {
+                    set_enabled(w->id(), false);
+                }
+                ImGui::Separator();
+                w->draw_settings();
+                ImGui::EndPopup();
             }
 
             ImGui::SetCursorScreenPos(pos + size - ImVec2(12, 12));
@@ -148,6 +169,7 @@ void HudManager::draw() {
                         theme::to_u32(theme::accent),
                         w->name().data(),
                         w->name().data() + w->name().size());
+            ImGui::PopID();
         }
     }
 

@@ -13,6 +13,7 @@ public:
 
     void configure_style();                        // push Theme into ImGui once.
     void register_default_panels();                // called by Engine::start.
+    void register_keybinds();                      // default action table
     void draw();                                   // per-frame entry point.
     void route_input(UINT msg, WPARAM w, LPARAM l);
 
@@ -24,6 +25,8 @@ private:
 
     bool visible_ = true;
     int  frame_   = 0;
+
+    friend class Engine;   // so set_visible() update flows through ClickGui too
 };
 
 }  // namespace dxs
