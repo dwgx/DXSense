@@ -50,6 +50,15 @@ target_compile_options(dxsense PRIVATE
     /W4 /permissive- /Zc:preprocessor /utf-8 /EHsc /MP
 )
 
+# Stage downloaded UI fonts next to the built DLL so the runtime can find
+# them via GetModuleFileName + "/fonts/".
+add_custom_command(TARGET dxsense POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:dxsense>/fonts"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${DXS_FONTS_DIR}/Inter.ttf"
+            "$<TARGET_FILE_DIR:dxsense>/fonts/Inter.ttf"
+    VERBATIM)
+
 target_link_libraries(dxsense PRIVATE
     imgui
     minhook

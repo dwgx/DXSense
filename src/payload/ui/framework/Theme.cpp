@@ -18,13 +18,13 @@ void apply() {
     s.FrameBorderSize      = 0.0f;
     s.PopupBorderSize      = 1.0f;
 
-    s.WindowPadding        = {14, 12};
-    s.FramePadding         = {10, 5};
-    s.CellPadding          = {8, 4};
-    s.ItemSpacing          = {10, 6};
-    s.ItemInnerSpacing     = {8, 4};
-    s.IndentSpacing        = 18.0f;
-    s.ScrollbarSize        = 12.0f;
+    s.WindowPadding        = {space_4, space_3};
+    s.FramePadding         = {space_3,  6};
+    s.CellPadding          = {space_3,  6};
+    s.ItemSpacing          = {space_3,  8};
+    s.ItemInnerSpacing     = {space_2,  4};
+    s.IndentSpacing        = 20.0f;
+    s.ScrollbarSize        = 10.0f;
     s.GrabMinSize          = 10.0f;
 
     s.WindowTitleAlign     = {0.0f, 0.5f};
@@ -57,7 +57,7 @@ void apply() {
 
     c[ImGuiCol_CheckMark]             = accent;
     c[ImGuiCol_SliderGrab]            = accent;
-    c[ImGuiCol_SliderGrabActive]      = accent;
+    c[ImGuiCol_SliderGrabActive]      = accent_hot;
 
     c[ImGuiCol_Button]                = bg_elevated;
     c[ImGuiCol_ButtonHovered]         = bg_hover;
@@ -90,7 +90,7 @@ void apply() {
     c[ImGuiCol_TableBorderStrong]     = divider;
     c[ImGuiCol_TableBorderLight]      = divider;
     c[ImGuiCol_TableRowBg]            = {0, 0, 0, 0};
-    c[ImGuiCol_TableRowBgAlt]         = {1, 1, 1, 0.012f};
+    c[ImGuiCol_TableRowBgAlt]         = {1, 1, 1, 0.014f};
 
     c[ImGuiCol_TextSelectedBg]        = accent_soft;
     c[ImGuiCol_DragDropTarget]        = accent;
@@ -98,6 +98,25 @@ void apply() {
     c[ImGuiCol_NavWindowingHighlight] = accent_edge;
     c[ImGuiCol_NavWindowingDimBg]     = {0, 0, 0, 0.35f};
     c[ImGuiCol_ModalWindowDimBg]      = {0, 0, 0, 0.55f};
+}
+
+void draw_shadow(ImVec2 tl, ImVec2 br, float rounding, float extent) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    // Three concentric softened rectangles for a cheap approximation of a
+    // Gaussian shadow. Darkness and radius decrease as we move outward.
+    struct Layer { float offset; float alpha; };
+    constexpr Layer layers[] = {
+        {0.28f, 0.45f}, {0.55f, 0.22f}, {1.00f, 0.08f},
+    };
+    for (auto& l : layers) {
+        ImVec4 col = shadow;
+        col.w = l.alpha * 0.35f;
+        const float grow = extent * l.offset;
+        dl->AddRectFilled(tl - ImVec2(grow, grow - 2),
+                          br + ImVec2(grow, grow + 2),
+                          to_u32(col),
+                          rounding + grow * 0.5f);
+    }
 }
 
 }  // namespace dxs::theme

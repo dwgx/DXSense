@@ -1,6 +1,34 @@
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
 
+# ---- UI fonts --------------------------------------------------------------
+# Inter is downloaded once per clean build. Users reject the stock Windows
+# font stack; Inter is the de-facto modern UI sans and survives scale well.
+# Additional CJK / icon faces come from the Windows system fonts at runtime
+# (DengXian Light, Segoe Fluent Icons).
+set(DXS_FONTS_DIR "${CMAKE_BINARY_DIR}/bin/fonts")
+file(MAKE_DIRECTORY "${DXS_FONTS_DIR}")
+
+function(dxs_fetch_font url dest)
+    if(NOT EXISTS "${dest}")
+        message(STATUS "DXSense fonts: fetching ${url}")
+        file(DOWNLOAD "${url}" "${dest}"
+             TIMEOUT 60 INACTIVITY_TIMEOUT 30
+             STATUS _status)
+        list(GET _status 0 _code)
+        if(NOT _code EQUAL 0)
+            list(GET _status 1 _err)
+            message(WARNING "DXSense fonts: download failed (${_err})")
+            file(REMOVE "${dest}")
+        endif()
+    endif()
+endfunction()
+
+dxs_fetch_font(
+    "https://github.com/rsms/inter/raw/master/docs/font-files/InterVariable.ttf"
+    "${DXS_FONTS_DIR}/Inter.ttf")
+
+
 # ---- ImGui (docking branch) ------------------------------------------------
 FetchContent_Declare(
     imgui
