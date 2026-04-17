@@ -9,6 +9,7 @@
 #include "ui/framework/Theme.hpp"
 #include "ui/hud/HudManager.hpp"
 #include "ui/hud/widgets/CrosshairWidget.hpp"
+#include "ui/hud/widgets/EspWidget.hpp"
 #include "ui/hud/widgets/RadarWidget.hpp"
 #include "ui/hud/widgets/StatsWidget.hpp"
 #include "ui/panels/EntitiesPanel.hpp"
@@ -65,6 +66,7 @@ void Overlay::register_default_panels() {
     hud.register_widget(std::make_unique<StatsWidget>());
     hud.register_widget(std::make_unique<CrosshairWidget>());
     hud.register_widget(std::make_unique<RadarWidget>());
+    hud.register_widget(std::make_unique<EspWidget>());
 }
 
 // Route Overlay::set_visible through the ClickGui so both stay in sync.

@@ -111,6 +111,14 @@ void HudManager::draw() {
         const ImVec2 pos  = vp->WorkPos + it->second.pos;
         const ImVec2 size = it->second.size;
 
+        // Fullscreen widgets (ESP, beamed-line overlays, etc.) skip the
+        // per-widget clip so they can paint anywhere. They also ignore the
+        // edit-mode chrome — there's nothing to drag around.
+        if (w->fullscreen()) {
+            w->draw(dl, vp->WorkPos, vp->WorkSize);
+            continue;
+        }
+
         dl->PushClipRect(pos, pos + size, true);
         w->draw(dl, pos, size);
         dl->PopClipRect();

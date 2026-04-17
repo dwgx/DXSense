@@ -28,6 +28,12 @@ public:
     // Optional per-widget config UI, shown in HudPanel under the widget's
     // row when expanded. Defaults to nothing.
     virtual void draw_settings() {}
+
+    // Full-viewport widgets (ESP, overlay lines) ignore the pos/size passed
+    // to draw() and render against the whole foreground draw list. Returning
+    // true tells HudManager to skip the per-widget clip rect and positioning
+    // dance so those widgets can paint anywhere on screen.
+    virtual bool fullscreen() const { return false; }
 };
 
 }  // namespace dxs

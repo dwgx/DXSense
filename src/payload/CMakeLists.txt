@@ -20,6 +20,7 @@ add_library(dxsense SHARED
     ui/framework/Theme.cpp
     ui/hud/HudManager.cpp
     ui/hud/widgets/CrosshairWidget.cpp
+    ui/hud/widgets/EspWidget.cpp
     ui/hud/widgets/RadarWidget.cpp
     ui/hud/widgets/StatsWidget.cpp
     ui/panels/EntitiesPanel.cpp
