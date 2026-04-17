@@ -12,8 +12,13 @@ add_library(dxsense SHARED
     ui/framework/ClickGui.cpp
     ui/framework/Fonts.cpp
     ui/framework/Theme.cpp
+    ui/hud/HudManager.cpp
+    ui/hud/widgets/CrosshairWidget.cpp
+    ui/hud/widgets/RadarWidget.cpp
+    ui/hud/widgets/StatsWidget.cpp
     ui/panels/EntitiesPanel.cpp
     ui/panels/HooksPanel.cpp
+    ui/panels/HudPanel.cpp
     ui/panels/MatrixPanel.cpp
     ui/panels/MemoryPanel.cpp
     ui/panels/OverviewPanel.cpp

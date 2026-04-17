@@ -4,8 +4,13 @@
 #include "core/Logger.hpp"
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/Theme.hpp"
+#include "ui/hud/HudManager.hpp"
+#include "ui/hud/widgets/CrosshairWidget.hpp"
+#include "ui/hud/widgets/RadarWidget.hpp"
+#include "ui/hud/widgets/StatsWidget.hpp"
 #include "ui/panels/EntitiesPanel.hpp"
 #include "ui/panels/HooksPanel.hpp"
+#include "ui/panels/HudPanel.hpp"
 #include "ui/panels/MatrixPanel.hpp"
 #include "ui/panels/MemoryPanel.hpp"
 #include "ui/panels/OverviewPanel.hpp"
@@ -43,12 +48,21 @@ void Overlay::register_default_panels() {
     gui.register_panel(std::make_unique<MemoryPanel>());
     gui.register_panel(std::make_unique<PythonReplPanel>());
     gui.register_panel(std::make_unique<QuickActionsPanel>());
+    gui.register_panel(std::make_unique<HudPanel>());
     gui.register_panel(std::make_unique<SettingsPanel>());
+
+    auto& hud = HudManager::instance();
+    hud.register_widget(std::make_unique<StatsWidget>());
+    hud.register_widget(std::make_unique<CrosshairWidget>());
+    hud.register_widget(std::make_unique<RadarWidget>());
 }
 
 void Overlay::draw() {
     ++frame_;
     Config::instance().save_if_dirty();   // debounced — safe to spam
+    // HUD always draws (even with overlay toggled off) because it's the
+    // in-viewport information layer — that's its whole reason for existing.
+    HudManager::instance().draw();
     if (!visible_) return;
     ClickGui::instance().draw();
 }
