@@ -76,6 +76,12 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
     if (have_origin) {
         const float scale = radius / range_;
         for (const auto& u : snap.units) {
+            // Skip unresolved / decoration anchors at world origin — no real
+            // match entity ever sits at (0,0,0) (spawn pads are offset).
+            const bool positioned =
+                std::fabs(u.pos.x) + std::fabs(u.pos.y) + std::fabs(u.pos.z) > 0.01f;
+            if (!positioned) continue;
+
             if (is_hunter(u.kind)   && !show_hunters_)   continue;
             if (is_survivor(u.kind) && !show_survivors_) continue;
             if (is_prop(u.kind)     && !show_props_)     continue;

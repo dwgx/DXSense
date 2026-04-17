@@ -1,6 +1,7 @@
 #include "OverviewPanel.hpp"
 
 #include "core/Localization.hpp"
+#include "game/CameraSampler.hpp"
 #include "scripting/PythonBridge.hpp"
 #include "ui/framework/Theme.hpp"
 
@@ -24,6 +25,73 @@ void draw_status_row(const char* name, bool ok, const char* detail) {
 
 void OverviewPanel::draw() {
     ImGuiIO& io = ImGui::GetIO();
+
+    // Scene state banner ------------------------------------------------------
+    // Keeps the user oriented at all times. The tool's data-producing widgets
+    // only light up in a live 3D scene, so show *what we're seeing right now*
+    // before any of the subsystem cards. This answers the "我都不知道在干什么"
+    // question the UX was failing — you should always know what the overlay
+    // has, not just what it *could* have in a different scene.
+    {
+        auto snap = CameraSampler::instance().snapshot();
+
+        theme::Status s;
+        const char* label;
+        char detail[160];
+        if (snap.in_battle && snap.player_ready) {
+            s = theme::Status::Good;
+            label = "Match active";
+            std::snprintf(detail, sizeof(detail),
+                "%s · scene %d · player uid %llu · %d units live",
+                snap.world_class.empty() ? "world" : snap.world_class.c_str(),
+                snap.scene_id,
+                static_cast<unsigned long long>(snap.player_uid),
+                static_cast<int>(snap.units.size()));
+        } else if (snap.camera_ready) {
+            s = theme::Status::Warn;
+            label = "Scene loaded, not in match";
+            std::snprintf(detail, sizeof(detail),
+                "%s · scene %d · camera at (%.0f, %.0f, %.0f)",
+                snap.world_class.empty() ? "world" : snap.world_class.c_str(),
+                snap.scene_id,
+                snap.cam_pos.x, snap.cam_pos.y, snap.cam_pos.z);
+        } else {
+            s = theme::Status::Bad;
+            label = "No live scene";
+            std::snprintf(detail, sizeof(detail),
+                "menu / loading — matrix, radar and raycast wait for a 3D world");
+        }
+
+        const float banner_h = theme::card_h_sm * 0.65f;
+        const ImVec2 banner_p0 = ImGui::GetCursorScreenPos();
+        const ImVec2 banner_p1 = banner_p0 +
+            ImVec2(ImGui::GetContentRegionAvail().x, banner_h);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(banner_p0, banner_p1,
+                          theme::to_u32(theme::bg_surface), theme::radius_lg);
+        ImVec4 stripe;
+        switch (s) {
+            case theme::Status::Good: stripe = theme::good; break;
+            case theme::Status::Warn: stripe = theme::warn; break;
+            case theme::Status::Bad:  stripe = theme::bad;  break;
+            default:                  stripe = theme::accent;
+        }
+        dl->AddRectFilled(banner_p0,
+                          banner_p0 + ImVec2(theme::card_stripe_w, banner_h),
+                          theme::to_u32(stripe), theme::radius_lg,
+                          ImDrawFlags_RoundCornersLeft);
+
+        ImGui::SetCursorScreenPos(banner_p0 +
+            ImVec2(theme::card_pad_x, theme::card_pad_y * 0.6f));
+        theme::status_chip(s, label);
+        ImGui::SetCursorScreenPos(banner_p0 +
+            ImVec2(theme::card_pad_x, theme::card_pad_y * 0.6f + ImGui::GetFontSize() + 2.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
+        ImGui::TextUnformatted(detail);
+        ImGui::PopStyleColor();
+
+        ImGui::SetCursorScreenPos(ImVec2(banner_p0.x, banner_p1.y + theme::space_md));
+    }
 
     // Metric tiles row --------------------------------------------------------
     const float avail = ImGui::GetContentRegionAvail().x;

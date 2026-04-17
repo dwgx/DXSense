@@ -18,20 +18,25 @@ namespace {
 
 const char* kind_name(int k) {
     switch (k) {
-        case 1:   return "BUTCHER";
-        case 2:   return "CIVILIAN";
-        case 3:   return "GENERATOR";
-        case 4:   return "HOOK";
-        case 5:   return "BOX";
-        case 6:   return "DOOR";
-        case 7:   return "WOOD";
-        case 8:   return "PANEL";
-        case 9:   return "CUPBOARD";
-        case 10:  return "CAVE";
-        case 11:  return "CROW";
-        case 12:  return "SWITCH";
-        case 510: return "SPIRIT";
-        default:  return "?";
+        case 1:    return "BUTCHER";
+        case 2:    return "CIVILIAN";
+        case 3:    return "GENERATOR";
+        case 4:    return "HOOK";
+        case 5:    return "BOX";
+        case 6:    return "DOOR";
+        case 7:    return "WOOD";
+        case 8:    return "PANEL";
+        case 9:    return "CUPBOARD";
+        case 10:   return "CAVE";
+        case 11:   return "CROW";
+        case 12:   return "SWITCH";
+        case 53:   return "LOBBY_PROP";
+        case 59:   return "LOBBY_PROP";
+        case 74:   return "LOBBY_PROP";
+        case 100:  return "LOBBY_CHAR";
+        case 510:  return "SPIRIT";
+        case 1009: return "LOBBY_NPC";
+        default:   return "?";
     }
 }
 
@@ -72,21 +77,36 @@ void RaycastPanel::draw() {
                 snap.cam_right.x, snap.cam_right.y, snap.cam_right.z);
     ImGui::Text("  up       = (%+.3f, %+.3f, %+.3f)",
                 snap.cam_up.x, snap.cam_up.y, snap.cam_up.z);
-    ImGui::Text("  units    = %d live   ·   fov %.1f°",
-                static_cast<int>(snap.units.size()), snap.fov_y);
+    // Filter: skip units at (0,0,0) — those are scene-placeholder / decoration
+    // objects (spawn markers, UI reference anchors) that aren't real world
+    // entities. In match state this also skips any unit that hasn't had its
+    // transform resolved yet this tick.
+    auto is_real = [](const Vec3& p) {
+        return std::fabs(p.x) + std::fabs(p.y) + std::fabs(p.z) > 0.01f;
+    };
+    int real_count = 0;
+    for (const auto& u : snap.units) if (is_real(u.pos)) ++real_count;
 
-    ImGui::Dummy(ImVec2(0, 10));
+    ImGui::Text("  units    = %d live (%d positioned)   ·   fov %.1f°",
+                static_cast<int>(snap.units.size()), real_count, snap.fov_y);
 
-    // Request world->screen projection for every live unit — next tick the
-    // result shows up in snap.screen[uid]. This is the whole ESP loop: one
-    // read-modify-request per frame, no per-unit Python calls.
+    if (!snap.in_battle) {
+        ImGui::Dummy(ImVec2(0, theme::space_sm));
+        theme::status_chip(theme::Status::Warn, "lobby — enter a match for useful raycast data");
+        ImGui::Dummy(ImVec2(0, theme::space_xs));
+    }
+
+    ImGui::Dummy(ImVec2(0, theme::space_md));
+
+    // Request world->screen projection for every POSITIONED unit only.
     std::vector<std::pair<std::uint64_t, Vec3>> request;
-    request.reserve(snap.units.size());
-    for (const auto& u : snap.units) request.emplace_back(u.uid, u.pos);
+    request.reserve(real_count);
+    for (const auto& u : snap.units) {
+        if (is_real(u.pos)) request.emplace_back(u.uid, u.pos);
+    }
     sampler.request_world_to_screen(std::move(request));
 
-    // Rank units by angular offset from view forward — "what am I looking at"
-    // without needing an actual engine raycast primitive.
+    // Rank positioned units by angular offset from view forward.
     struct Row {
         std::uint64_t uid;
         int           kind;
@@ -94,8 +114,9 @@ void RaycastPanel::draw() {
         float         dist;
     };
     std::vector<Row> ranked;
-    ranked.reserve(snap.units.size());
+    ranked.reserve(real_count);
     for (const auto& u : snap.units) {
+        if (!is_real(u.pos)) continue;
         Vec3 d{ u.pos.x - snap.cam_pos.x,
                 u.pos.y - snap.cam_pos.y,
                 u.pos.z - snap.cam_pos.z };
@@ -110,8 +131,14 @@ void RaycastPanel::draw() {
               [](const Row& a, const Row& b) { return a.angle_deg < b.angle_deg; });
 
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::TextUnformatted("closest to crosshair (angular offset)");
+    if (ranked.empty()) {
+        ImGui::TextUnformatted("no positioned entities in view");
+    } else {
+        ImGui::TextUnformatted("closest to crosshair (angular offset)");
+    }
     ImGui::PopStyleColor();
+
+    if (ranked.empty()) return;
 
     if (ImGui::BeginTable("raycast_table", 5,
                           ImGuiTableFlags_BordersInner |
