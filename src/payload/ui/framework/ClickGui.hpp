@@ -46,6 +46,12 @@ private:
 
     struct Toast { std::string text; double fade_at; };
     std::vector<Toast>                   toasts_;
+
+    // Fade-in + scale animation — started on first-time visibility and when
+    // the panel selection changes. Kept as simple doubles so the frame
+    // callback is branch-free in steady state.
+    double                               window_anim_start_ = 0.0;
+    double                               panel_anim_start_  = 0.0;
 };
 
 }  // namespace dxs

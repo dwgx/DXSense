@@ -3,6 +3,7 @@
 #include "Config.hpp"
 #include "Localization.hpp"
 #include "Logger.hpp"
+#include "game/GameMemory.hpp"
 #include "hook/HookManager.hpp"
 #include "hook/WndProcHook.hpp"
 #include "render/Dx11Backend.hpp"
@@ -67,6 +68,10 @@ void Engine::start(void* this_module) {
         py_host && PythonBridge::instance().initialize(py_host)) {
         DXS_INFO("PythonBridge attached to neox_engine.dll");
     }
+
+    // Resolve RVA → VA mappings for direct memory access. Safe to call even
+    // when the module is absent — subsequent GameMemory::ready() reads false.
+    GameMemory::instance().initialize();
 }
 
 void Engine::attach_window(HWND hwnd) {

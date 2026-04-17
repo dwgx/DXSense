@@ -1,5 +1,6 @@
 #include "ClickGui.hpp"
 
+#include "Animation.hpp"
 #include "Theme.hpp"
 
 #include <imgui.h>
@@ -29,6 +30,7 @@ void ClickGui::register_panel(std::unique_ptr<IPanel> panel) {
 
 void ClickGui::select(std::string_view panel_id) {
     selected_id_ = std::string(panel_id);
+    panel_anim_start_ = ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0;
     if (opened_once_.insert(selected_id_).second) {
         for (auto& p : panels_) if (p->id() == panel_id) p->on_first_show();
     }
@@ -39,11 +41,20 @@ void ClickGui::toast(std::string msg) {
 }
 
 void ClickGui::draw() {
-    if (!visible_) return;
+    if (!visible_) {
+        window_anim_start_ = 0.0;   // reset so a re-show animates again
+        return;
+    }
+    const double now = ImGui::GetTime();
+    if (window_anim_start_ <= 0.0) window_anim_start_ = now;
+
+    const auto win_anim   = anim::compute(now, window_anim_start_, 0.32);
+    const auto panel_anim = anim::compute(now, panel_anim_start_,  0.20);
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const ImVec2 default_size{960, 600};
     ImGui::SetNextWindowPos(vp->WorkPos + ImVec2(32, 32), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize({960, 600}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(default_size, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints({kWindowMinW, kWindowMinH}, {FLT_MAX, FLT_MAX});
 
     const ImGuiWindowFlags flags =
@@ -51,9 +62,10 @@ void ClickGui::draw() {
         ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar  (ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar  (ImGuiStyleVar_Alpha, win_anim.alpha);
     const bool open = ImGui::Begin("##dxsense_root", nullptr, flags);
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
     if (!open) { ImGui::End(); return; }
 
     // Custom top chrome (logo + accent bar) so the window looks distinct.
@@ -91,12 +103,15 @@ void ClickGui::draw() {
 
     ImGui::SetCursorScreenPos(top_pos + ImVec2(0, theme::header_h));
 
-    // Body split: sidebar + content.
+    // Body split: sidebar + content. Panel content fades in quickly when
+    // the selection changes so the switch feels crisp instead of jumpy.
     ImGui::BeginChild("##dxs_body", ImVec2(avail_w, 0), false,
                       ImGuiWindowFlags_NoScrollbar);
     draw_sidebar();
     ImGui::SameLine(0, 0);
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, panel_anim.alpha);
     draw_content();
+    ImGui::PopStyleVar();
     ImGui::EndChild();
 
     draw_toasts();

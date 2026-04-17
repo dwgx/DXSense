@@ -4,6 +4,7 @@ add_library(dxsense SHARED
     core/Engine.cpp
     core/Localization.cpp
     core/Logger.cpp
+    game/GameMemory.cpp
     hook/HookManager.cpp
     hook/WndProcHook.cpp
     render/Dx11Backend.cpp
@@ -56,4 +57,5 @@ target_link_libraries(dxsense PRIVATE
     dwmapi
     shell32   # SHGetKnownFolderPath
     ole32     # CoTaskMemFree
+    psapi     # GetModuleInformation
 )
