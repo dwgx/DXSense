@@ -11,3 +11,9 @@ CMakeSettings.json
 *.ilk
 *.exp
 *.lib
+
+# Per-machine MCP config (absolute Python path; regenerate with `python -m ida_pro_mcp --install claude --scope project`)
+.mcp.json
+
+# Local reverse-engineering artefacts (big binaries, IDA databases, extracted assets)
+analysis/
