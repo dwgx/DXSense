@@ -1,6 +1,7 @@
 #include "RadarWidget.hpp"
 
 #include "core/Config.hpp"
+#include "game/CameraSampler.hpp"
 #include "ui/framework/Theme.hpp"
 #include "ui/panels/EntitiesPanel.hpp"
 
@@ -48,24 +49,31 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
     dl->AddLine({centre.x, centre.y - radius}, {centre.x, centre.y + radius},
                 theme::to_u32(theme::divider), 1.0f);
 
-    // --- Entity plots --------------------------------------------------------
-    // Centre-of-mass strategy: compute the average of all visible positions
-    // and treat it as the player's origin. Once GameMemory exposes the real
-    // local-player pointer this block becomes centre = player_pos and the
-    // rest of the math is identical.
-    float cx = 0, cy = 0; int count_used = 0;
-    const EntitiesPanel* ep = EntitiesPanel::global();
-    if (ep) {
-        for (const auto& r : ep->rows()) {
-            float px, py, pz;
-            if (!parse_pos(r.extras, px, py, pz)) continue;
-            cx += px; cy += py; ++count_used;
+    // --- Origin + heading from the live camera sample ------------------------
+    // NeoX3 world: +y is vertical, the ground plane is XZ. A top-down radar
+    // therefore maps world (x, z) → screen (x, y). Heading rotates the plot
+    // so the player's forward always points up on the radar.
+    auto snap = CameraSampler::instance().snapshot();
+    const bool have_origin = snap.player_ready || snap.camera_ready;
+    const Vec3 origin = snap.player_ready ? snap.player_pos : snap.cam_pos;
+
+    // Yaw relative to world +Z, measured from the camera's forward vector.
+    float cos_h = 1.0f, sin_h = 0.0f;
+    if (snap.camera_ready) {
+        const float fx = snap.cam_forward.x, fz = snap.cam_forward.z;
+        const float len = std::sqrt(fx * fx + fz * fz);
+        if (len > 1e-4f) {
+            // Rotate the radar so forward is up: invert the yaw.
+            cos_h = fz / len;
+            sin_h = fx / len;
         }
-        if (count_used > 0) { cx /= count_used; cy /= count_used; }
     }
 
+    // --- Entity plots --------------------------------------------------------
     int plotted = 0;
-    if (ep) {
+    const EntitiesPanel* ep = EntitiesPanel::global();
+    if (have_origin && ep) {
+        const float scale = radius / range_;
         for (const auto& r : ep->rows()) {
             if (r.kind == "Hunter" && !show_hunters_)     continue;
             if ((r.kind == "Survivor" || r.kind == "Avatar") && !show_survivors_) continue;
@@ -75,14 +83,16 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
             float px, py, pz;
             if (!parse_pos(r.extras, px, py, pz)) continue;
 
-            // Project world (x, y) offset from origin into radar pixels.
-            const float dx = (px - cx);
-            const float dy = (py - cy);
-            const float d  = std::sqrt(dx*dx + dy*dy);
+            // World-space delta on the ground plane (XZ).
+            const float wx = px - origin.x;
+            const float wz = pz - origin.z;
+            const float d  = std::sqrt(wx * wx + wz * wz);
             if (d > range_) continue;
 
-            const float scale = radius / range_;
-            const ImVec2 dot  = centre + ImVec2(dx * scale, dy * scale);
+            // Rotate into the player's local frame so forward = -y on screen.
+            const float lx = wx * cos_h - wz * sin_h;
+            const float lz = wx * sin_h + wz * cos_h;
+            const ImVec2 dot = centre + ImVec2(lx * scale, -lz * scale);
             dl->AddCircleFilled(dot, 3.5f, colour_for(r.kind));
             ++plotted;
         }
@@ -115,11 +125,15 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
     dl->AddText(centre + ImVec2(-30, radius - 16),
                 theme::to_u32(theme::text_muted), lbl);
 
-    // Honest placeholder badge — until GameMemory exposes the localplayer
-    // pointer the origin is the centroid of all visible entities, not the
-    // actual player position. The dots are relative, not absolute.
-    ImVec4 tag = theme::warn; tag.w = 0.85f;
-    const char* badge = count_used > 0 ? "relative" : "no data";
+    // Status badge — green when we actually have the player's world-space
+    // origin from the camera sampler, amber when we're still relying on the
+    // camera pos (player not resolved), red when there's no live scene.
+    ImVec4 tag;
+    const char* badge;
+    if (snap.player_ready)       { tag = theme::good; badge = "live"; }
+    else if (snap.camera_ready)  { tag = theme::warn; badge = "camera"; }
+    else                         { tag = theme::bad;  badge = "no scene"; }
+    tag.w = 0.85f;
     const ImVec2 badge_sz = ImGui::CalcTextSize(badge);
     const ImVec2 badge_tl = pos + ImVec2(size.x - badge_sz.x - 14, 8);
     ImVec4 badge_bg = theme::bg_surface; badge_bg.w = 0.85f;

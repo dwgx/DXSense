@@ -3,6 +3,7 @@
 #include "core/Config.hpp"
 #include "core/Keybinds.hpp"
 #include "core/Logger.hpp"
+#include "game/CameraSampler.hpp"
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/Splash.hpp"
 #include "ui/framework/Theme.hpp"
@@ -78,6 +79,9 @@ void overlay_set_visible_synced(bool v) {
 void Overlay::draw() {
     ++frame_;
     Config::instance().save_if_dirty();   // debounced — safe to spam
+    // Refresh camera state before widgets draw so radar / matrix panel read
+    // the same sample this frame. Sampler throttles internally (20 Hz default).
+    CameraSampler::instance().on_frame();
     HudManager::instance().draw();        // always on top of the game
     if (visible_) ClickGui::instance().draw();
     splash::draw();                       // rendered last — sits above everything

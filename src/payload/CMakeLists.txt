@@ -6,6 +6,7 @@ add_library(dxsense SHARED
     core/Localization.cpp
     core/Logger.cpp
     core/RemoteBridge.cpp
+    game/CameraSampler.cpp
     game/GameMemory.cpp
     hook/HookManager.cpp
     hook/WndProcHook.cpp
