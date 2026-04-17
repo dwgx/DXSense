@@ -55,7 +55,10 @@ void ClickGui::draw() {
     const auto panel_anim = anim::compute(now, panel_anim_start_,  0.30);
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(vp->WorkPos + ImVec2(40, 40), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(
+        vp->WorkPos + ImVec2(theme::space_xxl + theme::space_sm,
+                             theme::space_xxl + theme::space_sm),
+        ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize({1000, 640}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints({kWindowMinW, kWindowMinH}, {FLT_MAX, FLT_MAX});
 
@@ -64,7 +67,7 @@ void ClickGui::draw() {
         ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{});
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha,        win_anim.alpha);
     const bool open = ImGui::Begin("##dxsense_root", nullptr, flags);
     ImGui::PopStyleVar(2);
@@ -73,7 +76,7 @@ void ClickGui::draw() {
     // Drop shadow under the whole window — adds depth.
     const ImVec2 win_tl = ImGui::GetWindowPos();
     const ImVec2 win_br = win_tl + ImGui::GetWindowSize();
-    theme::draw_shadow(win_tl, win_br, theme::corner_md, 14.0f);
+    theme::draw_shadow(win_tl, win_br, theme::radius_lg, theme::space_lg);
 
     // ---- Header --------------------------------------------------------------
     ImDrawList*  dl      = ImGui::GetWindowDrawList();
@@ -82,7 +85,7 @@ void ClickGui::draw() {
 
     dl->AddRectFilled(top_pos, top_pos + ImVec2(avail_w, theme::header_h),
                       theme::to_u32(theme::bg_surface),
-                      theme::corner_md, ImDrawFlags_RoundCornersTop);
+                      theme::radius_lg, ImDrawFlags_RoundCornersTop);
     // Subtle gradient sheen across the top.
     for (int i = 0; i < 12; ++i) {
         ImVec4 c = theme::accent; c.w = 0.02f + i * 0.005f;
@@ -96,16 +99,22 @@ void ClickGui::draw() {
 
     // Breathing accent dot + halo.
     const float  pulse = 0.55f + 0.45f * static_cast<float>(std::sin(now * 2.4));
-    const ImVec2 dot_c = top_pos + ImVec2(24, theme::header_h * 0.5f);
+    const ImVec2 dot_c = top_pos + ImVec2(theme::space_xl, theme::header_h * 0.5f);
     ImVec4 halo = theme::accent; halo.w = 0.22f * pulse;
-    dl->AddCircleFilled(dot_c, 10.0f + pulse * 3.0f, theme::to_u32(halo), 24);
+    dl->AddCircleFilled(dot_c,
+                        theme::space_sm + theme::space_xxs + pulse * theme::card_stripe_w,
+                        theme::to_u32(halo), 24);
     ImVec4 halo2 = theme::accent; halo2.w = 0.10f * pulse;
-    dl->AddCircleFilled(dot_c, 18.0f + pulse * 5.0f, theme::to_u32(halo2), 24);
-    dl->AddCircleFilled(dot_c, 4.5f, theme::to_u32(theme::accent), 24);
+    dl->AddCircleFilled(dot_c,
+                        theme::space_lg + theme::space_xxs + pulse * (theme::space_xs + 1.0f),
+                        theme::to_u32(halo2), 24);
+    dl->AddCircleFilled(dot_c, theme::status_dot_r + 1.0f, theme::to_u32(theme::accent), 24);
 
-    ImGui::SetCursorScreenPos(top_pos + ImVec2(44, 14));
+    ImGui::SetCursorScreenPos(
+        top_pos + ImVec2(theme::space_xl + theme::space_lg + theme::space_xs,
+                         theme::space_md + theme::space_xxs));
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_primary);
-    ImGui::SetWindowFontScale(1.08f);
+    ImGui::SetWindowFontScale(theme::scale_header);
     ImGui::TextUnformatted("DXSense");
     ImGui::SetWindowFontScale(1.00f);
     ImGui::PopStyleColor();
@@ -117,7 +126,9 @@ void ClickGui::draw() {
     char fps_text[32];
     std::snprintf(fps_text, sizeof(fps_text), "%.0f fps", ImGui::GetIO().Framerate);
     const ImVec2 fps_size = ImGui::CalcTextSize(fps_text);
-    ImGui::SetCursorScreenPos(top_pos + ImVec2(avail_w - fps_size.x - 22, 14));
+    ImGui::SetCursorScreenPos(
+        top_pos + ImVec2(avail_w - fps_size.x - (theme::space_lg + theme::space_xs + theme::space_xxs),
+                         theme::space_md + theme::space_xxs));
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
     ImGui::TextUnformatted(fps_text);
     ImGui::PopStyleColor();
@@ -147,7 +158,8 @@ void ClickGui::draw() {
 }
 
 void ClickGui::draw_sidebar() {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14, 16));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+                        ImVec2(theme::space_md, theme::space_lg));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::bg_surface);
     ImGui::BeginChild("##dxs_sidebar", ImVec2(theme::sidebar_w, 0), false,
                       ImGuiWindowFlags_NoScrollbar);
@@ -167,15 +179,15 @@ void ClickGui::draw_sidebar() {
 
     for (const auto& cat : group_order) {
         if (!cat.empty()) {
-            ImGui::Dummy(ImVec2(0, theme::space_1));
+            ImGui::Dummy(ImVec2(0, theme::space_xs));
             ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-            ImGui::SetWindowFontScale(0.80f);
-            ImGui::Indent(6.0f);
+            ImGui::SetWindowFontScale(theme::scale_caption);
+            ImGui::Indent(theme::space_sm - theme::space_xxs);
             ImGui::TextUnformatted(cat.c_str());
-            ImGui::Unindent(6.0f);
+            ImGui::Unindent(theme::space_sm - theme::space_xxs);
             ImGui::SetWindowFontScale(1.00f);
             ImGui::PopStyleColor();
-            ImGui::Dummy(ImVec2(0, theme::space_1));
+            ImGui::Dummy(ImVec2(0, theme::space_xs));
         }
 
         for (IPanel* p : groups[cat]) {
@@ -185,9 +197,9 @@ void ClickGui::draw_sidebar() {
             const ImVec2 cursor = ImGui::GetCursorScreenPos();
             const float  row_w  = ImGui::GetContentRegionAvail().x;
 
-            ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0,0,0,0));
-            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0,0,0,0));
-            ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(0,0,0,0));
+            ImGui::PushStyleColor(ImGuiCol_Header,        theme::transparent);
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, theme::transparent);
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive,  theme::transparent);
             if (ImGui::Selectable("##row", active,
                                   ImGuiSelectableFlags_AllowDoubleClick,
                                   ImVec2(row_w, theme::row_h))) {
@@ -199,9 +211,11 @@ void ClickGui::draw_sidebar() {
             if (hovered || active) {
                 ImVec4 glow = active ? theme::accent_soft : theme::bg_hover;
                 if (!active) glow.w *= 0.6f;
-                dl->AddRectFilled(cursor + ImVec2(6, 2),
-                                  cursor + ImVec2(row_w - 6, theme::row_h - 2),
-                                  theme::to_u32(glow), theme::corner_sm);
+                dl->AddRectFilled(cursor + ImVec2(theme::space_sm - theme::space_xxs,
+                                                  theme::space_xxs),
+                                  cursor + ImVec2(row_w - (theme::space_sm - theme::space_xxs),
+                                                  theme::row_h - theme::space_xxs),
+                                  theme::to_u32(glow), theme::radius_md);
             }
             if (active) { sel_y = cursor.y; sel_h = theme::row_h; sel_found = true; }
 
@@ -211,9 +225,11 @@ void ClickGui::draw_sidebar() {
                                                    : theme::text_primary);
             std::string_view ic = p->icon();
             if (!ic.empty())
-                dl->AddText(ImVec2(cursor.x + 20, text_y), col,
+                dl->AddText(ImVec2(cursor.x + theme::space_lg + theme::space_xs, text_y), col,
                             ic.data(), ic.data() + ic.size());
-            dl->AddText(ImVec2(cursor.x + 46, text_y), col,
+            dl->AddText(
+                ImVec2(cursor.x + theme::space_xl + theme::space_lg + theme::space_xs + theme::space_xxs, text_y),
+                col,
                         p->title().data(),
                         p->title().data() + p->title().size());
 
@@ -231,9 +247,10 @@ void ClickGui::draw_sidebar() {
             sel_bar_h_ = anim::spring(sel_bar_h_, sel_h, 0.10f, dt);
         }
         const ImVec2 wp = ImGui::GetWindowPos();
-        dl->AddRectFilled({wp.x, sel_bar_y_ + 6},
-                          {wp.x + 3, sel_bar_y_ + sel_bar_h_ - 6},
-                          theme::to_u32(theme::accent_hot), 1.5f);
+        dl->AddRectFilled({wp.x, sel_bar_y_ + (theme::space_sm - theme::space_xxs)},
+                          {wp.x + theme::card_stripe_w,
+                           sel_bar_y_ + sel_bar_h_ - (theme::space_sm - theme::space_xxs)},
+                          theme::to_u32(theme::accent_hot), theme::radius_sm);
     }
 
     ImGui::EndChild();
@@ -243,7 +260,7 @@ void ClickGui::draw_sidebar() {
 
 void ClickGui::draw_content() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
-                        ImVec2(theme::space_6, theme::space_5));
+                        ImVec2(theme::space_xxl, theme::space_xl));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::bg_root);
 
     ImGui::BeginChild("##dxs_content", ImVec2(0, 0), false);
@@ -253,7 +270,7 @@ void ClickGui::draw_content() {
 
     if (active) {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::text_primary);
-        ImGui::SetWindowFontScale(1.22f);
+        ImGui::SetWindowFontScale(theme::scale_title);
         ImGui::TextUnformatted(std::string(active->title()).c_str());
         ImGui::SetWindowFontScale(1.00f);
         ImGui::PopStyleColor();
@@ -261,12 +278,12 @@ void ClickGui::draw_content() {
         const std::string cat(active->category());
         if (!cat.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-            ImGui::SetWindowFontScale(0.88f);
+            ImGui::SetWindowFontScale(theme::scale_body);
             ImGui::Text("%s  /  %s", cat.c_str(), std::string(active->id()).c_str());
             ImGui::SetWindowFontScale(1.00f);
             ImGui::PopStyleColor();
         }
-        ImGui::Dummy(ImVec2(0, theme::space_3));
+        ImGui::Dummy(ImVec2(0, theme::space_md));
         active->draw();
     } else {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
@@ -284,7 +301,8 @@ void ClickGui::draw_toasts() {
     std::erase_if(toasts_, [&](const Toast& t) { return t.fade_at <= now; });
     if (toasts_.empty()) return;
 
-    ImVec2 pos = ImGui::GetWindowPos() + ImGui::GetWindowSize() - ImVec2(28, 28);
+    ImVec2 pos = ImGui::GetWindowPos() + ImGui::GetWindowSize()
+               - ImVec2(theme::control_h_md, theme::control_h_md);
 
     for (auto it = toasts_.rbegin(); it != toasts_.rend(); ++it) {
         const float life  = float(it->fade_at - now) / float(kToastDurationSec);
@@ -294,15 +312,17 @@ void ClickGui::draw_toasts() {
         ImVec4 text   = theme::text_primary; text.w  *= alpha;
 
         const ImVec2 text_sz = ImGui::CalcTextSize(it->text.c_str());
-        const ImVec2 size    = text_sz + ImVec2(22, 14);
+        const ImVec2 toast_pad(theme::space_lg + theme::space_xs + theme::space_xxs,
+                               theme::space_md + theme::space_xxs);
+        const ImVec2 size    = text_sz + toast_pad;
         const ImVec2 tl      = pos - size;
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        theme::draw_shadow(tl, tl + size, theme::corner_sm, 6.0f);
-        dl->AddRectFilled(tl, tl + size, theme::to_u32(bg),    theme::corner_sm);
-        dl->AddRect      (tl, tl + size, theme::to_u32(border),theme::corner_sm, 0, 1.0f);
-        dl->AddText      (tl + ImVec2(11, 7), theme::to_u32(text), it->text.c_str());
-        pos = tl - ImVec2(0, 10);
+        theme::draw_shadow(tl, tl + size, theme::radius_md, theme::space_sm - theme::space_xxs);
+        dl->AddRectFilled(tl, tl + size, theme::to_u32(bg),    theme::radius_md);
+        dl->AddRect      (tl, tl + size, theme::to_u32(border),theme::radius_md, 0, 1.0f);
+        dl->AddText      (tl + toast_pad * 0.5f, theme::to_u32(text), it->text.c_str());
+        pos = tl - ImVec2(0, theme::space_md);
     }
 }
 

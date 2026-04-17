@@ -5,24 +5,28 @@ namespace dxs::theme {
 void apply() {
     ImGuiStyle& s = ImGui::GetStyle();
 
-    s.WindowRounding       = corner_md;
-    s.ChildRounding        = corner_sm;
-    s.FrameRounding        = corner_sm;
-    s.PopupRounding        = corner_md;
-    s.GrabRounding         = corner_sm;
-    s.ScrollbarRounding    = corner_sm;
-    s.TabRounding          = corner_sm;
+    // Fluent-aligned radius scale: large for windows/popups, medium for
+    // controls, small for tags. The old corner_md (6 px) for windows split
+    // the visual difference between "card" and "dialog" — bump to radius_lg.
+    s.WindowRounding       = radius_lg;
+    s.ChildRounding        = radius_md;
+    s.FrameRounding        = radius_md;
+    s.PopupRounding        = radius_lg;
+    s.GrabRounding         = radius_md;
+    s.ScrollbarRounding    = radius_md;
+    s.TabRounding          = radius_md;
 
     s.WindowBorderSize     = 0.0f;
     s.ChildBorderSize      = 0.0f;
     s.FrameBorderSize      = 0.0f;
     s.PopupBorderSize      = 1.0f;
 
-    s.WindowPadding        = {space_4, space_3};
-    s.FramePadding         = {space_3,  6};
-    s.CellPadding          = {space_3,  6};
-    s.ItemSpacing          = {space_3,  8};
-    s.ItemInnerSpacing     = {space_2,  4};
+    // Spacing comes from the 4 px scale — no bespoke numbers here.
+    s.WindowPadding        = {space_lg, space_md};
+    s.FramePadding         = {space_md, space_sm};
+    s.CellPadding          = {space_md, space_sm};
+    s.ItemSpacing          = {space_md, space_sm};
+    s.ItemInnerSpacing     = {space_sm, space_xs};
     s.IndentSpacing        = 20.0f;
     s.ScrollbarSize        = 10.0f;
     s.GrabMinSize          = 10.0f;
@@ -129,6 +133,49 @@ void draw_shadow(ImVec2 tl, ImVec2 br, float rounding, float extent) {
                           to_u32(col),
                           rounding + grow * 0.5f);
     }
+}
+
+// ============================================================================
+// Shared status chip — dot + label. Inline version is the default; the _at
+// variant is for HUD widgets that draw via ImDrawList directly.
+// ============================================================================
+
+static ImVec4 status_colour(Status s) {
+    switch (s) {
+        case Status::Good:   return good;
+        case Status::Warn:   return warn;
+        case Status::Bad:    return bad;
+        case Status::Info:   return info;
+        case Status::Accent: return accent;
+        case Status::Idle:
+        default:             return text_faded;
+    }
+}
+
+void status_chip(Status s, std::string_view label) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float  h = ImGui::GetFontSize();
+    const ImVec2 dot = { p.x + status_dot_r + 1.0f,
+                         p.y + h * 0.5f };
+    dl->AddCircleFilled(dot, status_dot_r, to_u32(status_colour(s)), 16);
+    // Advance cursor past the dot + a small inner gap, then emit the label.
+    ImGui::Dummy(ImVec2(status_dot_r * 2 + space_xs + space_xxs, h));
+    ImGui::SameLine(0, 0);
+    ImGui::PushStyleColor(ImGuiCol_Text, text_secondary);
+    ImGui::TextUnformatted(label.data(), label.data() + label.size());
+    ImGui::PopStyleColor();
+}
+
+void status_chip_at(ImDrawList* dl, ImVec2 tl, Status s, std::string_view label) {
+    const float h = ImGui::GetFontSize();
+    const ImVec2 dot = { tl.x + status_dot_r + 1.0f,
+                         tl.y + h * 0.5f };
+    dl->AddCircleFilled(dot, status_dot_r, to_u32(status_colour(s)), 16);
+    const ImVec2 text_pos = { tl.x + status_dot_r * 2 + space_xs + space_xxs,
+                              tl.y };
+    dl->AddText(text_pos, to_u32(text_secondary),
+                label.data(), label.data() + label.size());
 }
 
 }  // namespace dxs::theme

@@ -5,6 +5,7 @@
 #include "ui/framework/Theme.hpp"
 #include "ui/hud/HudManager.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <imgui.h>
@@ -26,7 +27,7 @@ const char* description_for(std::string_view id) {
 // Draw the iOS-style toggle pill. Returns true on click.
 bool toggle(const char* id, bool* on) {
     ImGui::PushID(id);
-    const ImVec2 size(42, 22);
+    const ImVec2 size(theme::space_xxl + theme::space_sm, theme::control_h_sm);
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("##t", size);
     const bool clicked = ImGui::IsItemClicked();
@@ -37,7 +38,7 @@ bool toggle(const char* id, bool* on) {
     static float knob_px_map[256]{};  // map by hashed id — cheap
     const uint8_t  key = static_cast<uint8_t>(
         reinterpret_cast<uintptr_t>(id) & 0xFF);
-    const float    target = *on ? (size.x - size.y - 2) : 2.0f;
+    const float    target = *on ? (size.x - size.y - theme::space_xxs) : theme::space_xxs;
     float& now   = knob_px_map[key];
     const float  dt = ImGui::GetIO().DeltaTime;
     const float  k  = 1.0f - std::pow(0.5f, dt / 0.07f);
@@ -51,7 +52,7 @@ bool toggle(const char* id, bool* on) {
         dl->AddRect(pos, pos + size, theme::to_u32(glow), size.y * 0.5f, 0, 1.5f);
     }
     const ImVec2 knob_c = pos + ImVec2(now + size.y * 0.5f, size.y * 0.5f);
-    dl->AddCircleFilled(knob_c, size.y * 0.5f - 2,
+    dl->AddCircleFilled(knob_c, size.y * 0.5f - theme::space_xxs,
                         theme::to_u32(theme::text_primary), 24);
 
     if (clicked) *on = !*on;
@@ -69,20 +70,20 @@ void ModulesPanel::draw() {
     ImGui::TextWrapped("%s", L("modules.intro").data());
     ImGui::PopStyleColor();
 
-    ImGui::Dummy(ImVec2(0, 10));
+    ImGui::Dummy(ImVec2(0, theme::space_sm));
 
     bool global = hud.global_enabled();
     if (toggle("global", &global)) hud.set_global_enabled(global);
-    ImGui::SameLine(60);
+    ImGui::SameLine(theme::control_w_sm * 0.5f);
     ImGui::TextUnformatted(L("modules.global").data());
 
-    ImGui::SameLine(0, 28);
+    ImGui::SameLine(0, theme::control_h_md);
     bool edit = hud.edit_mode();
     if (toggle("edit", &edit)) hud.set_edit_mode(edit);
-    ImGui::SameLine(0, 8);
+    ImGui::SameLine(0, theme::space_sm);
     ImGui::TextUnformatted(L("modules.edit_positions").data());
 
-    ImGui::Dummy(ImVec2(0, 16));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
 
     // Card grid ---------------------------------------------------------------
     const auto widgets = hud.all();
@@ -93,74 +94,79 @@ void ModulesPanel::draw() {
         return;
     }
 
-    constexpr float kCardH = 112.0f;
     const float avail = ImGui::GetContentRegionAvail().x;
-    const int   cols  = std::max(1, int(avail / 220.0f));
-    const float card_w = (avail - (cols - 1) * 12) / cols;
+    const int   cols  = std::max(1,
+        int((avail + theme::card_gap) / (theme::card_min_w + theme::card_gap)));
+    const float card_w = (avail - (cols - 1) * theme::card_gap) / cols;
 
     int idx = 0;
     for (IHudWidget* w : widgets) {
-        if ((idx % cols) == 0 && idx != 0) ImGui::Dummy(ImVec2(0, 12));
-        if ((idx % cols) != 0) ImGui::SameLine(0, 12);
+        if ((idx % cols) == 0 && idx != 0) ImGui::Dummy(ImVec2(0, theme::card_gap));
+        if ((idx % cols) != 0) ImGui::SameLine(0, theme::card_gap);
 
         ImGui::PushID(w->id().data());
         bool on = hud.enabled(w->id());
 
         // Card frame — hover state slightly elevates the bg.
         const ImVec2 card_tl = ImGui::GetCursorScreenPos();
-        const ImVec2 card_br = card_tl + ImVec2(card_w, kCardH);
-        ImGui::InvisibleButton("##card", ImVec2(card_w, kCardH));
+        const ImVec2 card_br = card_tl + ImVec2(card_w, theme::card_h_lg);
+        ImGui::InvisibleButton("##card", ImVec2(card_w, theme::card_h_lg));
         const bool hover = ImGui::IsItemHovered();
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        ImVec4 bg = on ? theme::bg_elevated : theme::bg_surface;
-        if (hover) { bg.x += 0.02f; bg.y += 0.02f; bg.z += 0.02f; }
-        dl->AddRectFilled(card_tl, card_br, theme::to_u32(bg), theme::corner_md);
+        const ImVec4 bg = hover ? theme::bg_hover
+                                : (on ? theme::bg_elevated : theme::bg_surface);
+        dl->AddRectFilled(card_tl, card_br, theme::to_u32(bg), theme::radius_lg);
 
         // Left accent stripe when enabled.
         if (on) {
             ImVec4 stripe = theme::accent;
-            dl->AddRectFilled(card_tl, card_tl + ImVec2(3, kCardH),
+            dl->AddRectFilled(card_tl, card_tl + ImVec2(theme::card_stripe_w, theme::card_h_lg),
                               theme::to_u32(stripe),
-                              theme::corner_md, ImDrawFlags_RoundCornersLeft);
+                              theme::radius_lg, ImDrawFlags_RoundCornersLeft);
         }
 
         // Title.
-        ImGui::SetCursorScreenPos(card_tl + ImVec2(16, 14));
+        ImGui::SetCursorScreenPos(card_tl + ImVec2(theme::card_pad_x, theme::card_pad_y));
         ImGui::PushStyleColor(ImGuiCol_Text,
             on ? theme::text_primary : theme::text_muted);
-        ImGui::SetWindowFontScale(1.08f);
+        ImGui::SetWindowFontScale(theme::scale_header);
         ImGui::TextUnformatted(w->name().data());
         ImGui::SetWindowFontScale(1.00f);
         ImGui::PopStyleColor();
 
         // Description.
-        ImGui::SetCursorScreenPos(card_tl + ImVec2(16, 38));
+        ImGui::SetCursorScreenPos(card_tl + ImVec2(
+            theme::card_pad_x, theme::card_pad_y + theme::control_h_sm));
         ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-        ImGui::SetWindowFontScale(0.90f);
-        ImGui::PushTextWrapPos(card_br.x - 16);
+        ImGui::SetWindowFontScale(theme::scale_body);
+        ImGui::PushTextWrapPos(card_br.x - theme::card_pad_x);
         ImGui::TextUnformatted(description_for(w->id()));
         ImGui::PopTextWrapPos();
         ImGui::SetWindowFontScale(1.00f);
         ImGui::PopStyleColor();
 
         // Footer: toggle + settings button.
-        ImGui::SetCursorScreenPos(card_tl + ImVec2(16, kCardH - 34));
+        ImGui::SetCursorScreenPos(card_tl + ImVec2(
+            theme::card_pad_x,
+            theme::card_h_lg - theme::card_pad_y - theme::control_h_sm));
         const char* tid = w->id().data();
         if (toggle(tid, &on)) hud.set_enabled(w->id(), on);
 
         ImGui::SameLine();
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 10);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + theme::space_sm);
         ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
         ImGui::TextUnformatted(on ? L("common.active").data()
                                   : L("common.idle").data());
         ImGui::PopStyleColor();
 
         // Gear → settings popover.
-        ImGui::SetCursorScreenPos(card_tl + ImVec2(card_w - 36, kCardH - 32));
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+        ImGui::SetCursorScreenPos(card_tl + ImVec2(
+            card_w - theme::card_pad_x - theme::control_h_sm,
+            theme::card_h_lg - theme::card_pad_y - theme::control_h_sm));
+        ImGui::PushStyleColor(ImGuiCol_Button, theme::transparent);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::bg_hover);
-        if (ImGui::Button(ICON_SETTINGS, ImVec2(26, 24)))
+        if (ImGui::Button(ICON_SETTINGS, ImVec2(theme::control_h_sm, theme::control_h_sm)))
             ImGui::OpenPopup("##modcfg");
         ImGui::PopStyleColor(2);
 
@@ -170,7 +176,7 @@ void ModulesPanel::draw() {
 
             ImVec2 p = hud.pos(w->id());
             ImVec2 s = hud.size(w->id());
-            ImGui::PushItemWidth(220);
+            ImGui::PushItemWidth(theme::card_min_w);
             if (ImGui::DragFloat2("pos",  reinterpret_cast<float*>(&p),
                                   1.0f, 0, 3840, "%.0f"))
                 hud.set_pos(w->id(), p);

@@ -5,6 +5,8 @@
 
 #include <imgui.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace dxs::splash {
@@ -48,8 +50,8 @@ void draw() {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
     ImGui::SetNextWindowSize(vp->WorkSize);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleVar  (ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::transparent);
+    ImGui::PushStyleVar  (ImGuiStyleVar_WindowPadding, ImVec2{});
 
     const ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
@@ -64,46 +66,57 @@ void draw() {
     const ImVec2 centre = wp + ws * 0.5f;
 
     // Dim backdrop — never fully opaque so the user still sees the game.
-    ImVec4 dim = ImVec4(0.035f, 0.030f, 0.028f, 0.60f * alpha);
+    ImVec4 dim = theme::bg_backdrop;
+    dim.w *= alpha;
     dl->AddRectFilled(wp, wp + ws, theme::to_u32(dim));
 
     // Centered pill with the product name.
-    const float w = 360.0f;
-    const float h = 110.0f;
-    const ImVec2 tl = centre + ImVec2(-w/2, -h/2 + (1.0f - rise) * 28.0f);
+    const float w = theme::control_w_lg + theme::control_w_sm;
+    const float h = theme::card_h_lg;
+    const ImVec2 tl = centre + ImVec2(-w * 0.5f,
+                                      -h * 0.5f + (1.0f - rise) * theme::control_h_md);
     const ImVec2 br = tl + ImVec2(w, h);
 
     ImVec4 box = theme::bg_elevated; box.w = 0.95f * alpha;
     ImVec4 edge = theme::accent_edge; edge.w *= alpha;
-    dl->AddRectFilled(tl, br, theme::to_u32(box), 14.0f);
-    dl->AddRect      (tl, br, theme::to_u32(edge), 14.0f, 0, 1.5f);
+    dl->AddRectFilled(tl, br, theme::to_u32(box), theme::radius_lg);
+    dl->AddRect      (tl, br, theme::to_u32(edge), theme::radius_lg, 0, 1.0f);
 
     // Pulsing accent dot.
     const float p = pulse(elapsed);
     ImVec4 dot = theme::accent;
     dot.w = alpha * (0.55f + 0.45f * p);
-    const ImVec2 dot_c = tl + ImVec2(30, 36);
-    dl->AddCircleFilled(dot_c, 6.0f + 2.0f * p, theme::to_u32(dot), 32);
+    const ImVec2 dot_c = tl + ImVec2(theme::space_xl + theme::space_xs,
+                                     theme::card_pad_y + theme::space_xl);
+    dl->AddCircleFilled(dot_c,
+                        theme::space_sm - theme::space_xxs + theme::space_xs * 0.5f * p,
+                        theme::to_u32(dot), 32);
     ImVec4 glow = theme::accent; glow.w = alpha * 0.25f;
-    dl->AddCircleFilled(dot_c, 14.0f + 4.0f * p, theme::to_u32(glow), 32);
+    dl->AddCircleFilled(dot_c,
+                        theme::space_md + theme::space_xxs + theme::space_xs * p,
+                        theme::to_u32(glow), 32);
 
     // Title + subtitle.
     ImVec4 title = theme::text_primary; title.w *= alpha;
     ImVec4 sub   = theme::text_muted;   sub.w   *= alpha;
     ImFont* font = ImGui::GetFont();
-    dl->AddText(font, font->FontSize * 1.35f,
-                tl + ImVec2(56, 22),
+    dl->AddText(font, theme::font_title,
+                tl + ImVec2(theme::space_xxl + theme::space_xl,
+                            theme::space_lg + theme::space_xs + theme::space_xxs),
                 theme::to_u32(title), "DXSense");
-    dl->AddText(font, font->FontSize * 0.95f,
-                tl + ImVec2(56, 52),
+    dl->AddText(font, theme::font_body,
+                tl + ImVec2(theme::space_xxl + theme::space_xl,
+                            theme::space_xxl + theme::space_lg + theme::space_xs),
                 theme::to_u32(sub),
                 "attached  ·  dwrg / NeoX3  ·  v0.1");
 
     // Bottom progress line — sweeps left-to-right over full duration.
-    const float bar_y = br.y - 6.0f;
+    const float bar_y = br.y - (theme::space_sm - theme::space_xxs);
     ImVec4 bar = theme::accent; bar.w *= alpha;
-    dl->AddRectFilled({tl.x + 8, bar_y}, {tl.x + 8 + (w - 16) * t, bar_y + 2},
-                      theme::to_u32(bar), 1.5f);
+    dl->AddRectFilled({tl.x + theme::space_sm, bar_y},
+                      {tl.x + theme::space_sm + (w - theme::space_lg) * t,
+                       bar_y + theme::space_xxs},
+                      theme::to_u32(bar), theme::radius_sm);
 
     ImGui::End();
     ImGui::PopStyleVar();

@@ -5,6 +5,7 @@
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/Theme.hpp"
 
+#include <algorithm>
 #include <imgui.h>
 
 namespace dxs {
@@ -60,19 +61,19 @@ void QuickActionsPanel::draw() {
         "Output streams to the REPL panel. Great for discovering what's importable, "
         "what's loaded, and what global handles the game has lying around.");
     ImGui::PopStyleColor();
-    ImGui::Dummy(ImVec2(0, 8));
+    ImGui::Dummy(ImVec2(0, theme::space_sm));
 
     if (!ready) {
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::warn);
-        ImGui::TextUnformatted("● Python bridge not attached — buttons are disabled.");
-        ImGui::PopStyleColor();
-        ImGui::Dummy(ImVec2(0, 6));
+        theme::status_chip(theme::Status::Warn,
+                           "Python bridge not attached — buttons are disabled.");
+        ImGui::Dummy(ImVec2(0, theme::space_sm));
     }
 
     const float avail   = ImGui::GetContentRegionAvail().x;
-    const float col_min = 260.0f;
-    const int   cols    = std::max(1, int(avail / col_min));
-    const float col_w   = (avail - (cols - 1) * 10) / cols;
+    const int cols = std::max(1,
+        int((avail + theme::card_gap) / (theme::card_min_w + theme::card_gap)));
+    const float col_w = (avail - (cols - 1) * theme::card_gap) / cols;
+    const float run_w = theme::space_xxl + theme::space_xl + theme::space_sm;
 
     ImGui::BeginTable("##qa", cols, ImGuiTableFlags_NoBordersInBody);
     int idx = 0;
@@ -81,28 +82,35 @@ void QuickActionsPanel::draw() {
         ImGui::TableSetColumnIndex(idx % cols);
 
         ImGui::PushID(idx);
-        ImGui::BeginChild("##card", ImVec2(col_w, 96), false);
+        ImGui::BeginChild("##card", ImVec2(col_w, theme::card_h_md), false);
 
         ImDrawList*  dl = ImGui::GetWindowDrawList();
         const ImVec2 p0 = ImGui::GetWindowPos();
         const ImVec2 p1 = p0 + ImGui::GetWindowSize();
-        dl->AddRectFilled(p0, p1, theme::to_u32(theme::bg_surface), theme::corner_md);
+        dl->AddRectFilled(p0, p1, theme::to_u32(theme::bg_surface), theme::radius_lg);
+        dl->AddRectFilled(p0, p0 + ImVec2(theme::card_stripe_w, theme::card_h_md),
+                          theme::to_u32(theme::accent), theme::radius_lg,
+                          ImDrawFlags_RoundCornersLeft);
 
-        ImGui::SetCursorPos(ImVec2(14, 10));
+        ImGui::SetCursorPos(ImVec2(theme::card_pad_x, theme::card_pad_y));
         ImGui::PushStyleColor(ImGuiCol_Text, theme::text_primary);
+        ImGui::SetWindowFontScale(theme::scale_header);
         ImGui::TextUnformatted(a.label);
+        ImGui::SetWindowFontScale(1.00f);
         ImGui::PopStyleColor();
 
-        ImGui::SetCursorPos(ImVec2(14, 30));
+        ImGui::SetCursorPos(ImVec2(theme::card_pad_x,
+                                   theme::card_pad_y + theme::space_xl));
         ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
-        ImGui::SetWindowFontScale(0.88f);
+        ImGui::SetWindowFontScale(theme::scale_body);
         ImGui::TextWrapped("%s", a.subtitle);
         ImGui::SetWindowFontScale(1.00f);
         ImGui::PopStyleColor();
 
-        ImGui::SetCursorPos(ImVec2(col_w - 78, 62));
+        ImGui::SetCursorPos(ImVec2(col_w - theme::card_pad_x - run_w,
+                                   theme::card_h_md - theme::card_pad_y - theme::control_h_sm));
         ImGui::BeginDisabled(!ready);
-        if (ImGui::Button("Run", ImVec2(64, 24))) {
+        if (ImGui::Button("Run", ImVec2(run_w, theme::control_h_sm))) {
             if (auto* repl = python_repl_panel()) {
                 repl->submit_external(a.code, /*echo_prompt=*/true);
                 ClickGui::instance().select("python_repl");

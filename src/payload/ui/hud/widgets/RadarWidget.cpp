@@ -133,19 +133,24 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
     dl->AddText(centre + ImVec2(-30, radius - 16),
                 theme::to_u32(theme::text_muted), lbl);
 
-    ImVec4 tag;
-    const char* badge;
-    if (snap.player_ready)       { tag = theme::good; badge = "live"; }
-    else if (snap.camera_ready)  { tag = theme::warn; badge = "camera"; }
-    else                         { tag = theme::bad;  badge = "no scene"; }
-    tag.w = 0.85f;
-    const ImVec2 badge_sz = ImGui::CalcTextSize(badge);
-    const ImVec2 badge_tl = pos + ImVec2(size.x - badge_sz.x - 14, 8);
+    // Status badge — shared component so panels + HUD agree on the pattern.
+    theme::Status s;
+    const char* label;
+    if (snap.player_ready)       { s = theme::Status::Good; label = "live"; }
+    else if (snap.camera_ready)  { s = theme::Status::Warn; label = "camera"; }
+    else                         { s = theme::Status::Bad;  label = "no scene"; }
+    // Measure "dot + gap + label" so the backing card hugs the chip.
+    const float  dot_w = theme::status_dot_r * 2 + theme::space_xs + theme::space_xxs;
+    const ImVec2 lbl_sz = ImGui::CalcTextSize(label);
+    const ImVec2 chip_sz{ dot_w + lbl_sz.x, ImGui::GetFontSize() };
+    const ImVec2 badge_tl = pos + ImVec2(
+        size.x - chip_sz.x - theme::hud_pad_x, theme::hud_pad_y);
     ImVec4 badge_bg = theme::bg_surface; badge_bg.w = 0.85f;
-    dl->AddRectFilled(badge_tl - ImVec2(6, 3),
-                      badge_tl + badge_sz + ImVec2(6, 3),
-                      theme::to_u32(badge_bg), 3.0f);
-    dl->AddText(badge_tl, theme::to_u32(tag), badge);
+    dl->AddRectFilled(
+        badge_tl - ImVec2(theme::hud_badge_pad, theme::space_xs - 1),
+        badge_tl + chip_sz + ImVec2(theme::hud_badge_pad, theme::space_xs - 1),
+        theme::to_u32(badge_bg), theme::radius_sm);
+    theme::status_chip_at(dl, badge_tl, s, label);
 }
 
 void RadarWidget::draw_settings() {

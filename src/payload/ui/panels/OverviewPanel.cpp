@@ -4,6 +4,7 @@
 #include "scripting/PythonBridge.hpp"
 #include "ui/framework/Theme.hpp"
 
+#include <algorithm>
 #include <imgui.h>
 #include <cstdio>
 
@@ -12,17 +13,8 @@ namespace dxs {
 namespace {
 void draw_status_row(const char* name, bool ok, const char* detail) {
     ImGui::BeginGroup();
-    const float  radius = 4.0f;
-    const ImVec2 p      = ImGui::GetCursorScreenPos();
-    ImDrawList*  dl     = ImGui::GetWindowDrawList();
-    dl->AddCircleFilled(p + ImVec2(radius, ImGui::GetTextLineHeight() * 0.5f + 2),
-                        radius, theme::to_u32(ok ? theme::good : theme::bad));
-    ImGui::Dummy(ImVec2(16, 0));
-    ImGui::SameLine(0, 2);
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_primary);
-    ImGui::TextUnformatted(name);
-    ImGui::PopStyleColor();
-    ImGui::SameLine();
+    theme::status_chip(ok ? theme::Status::Good : theme::Status::Bad, name);
+    ImGui::SameLine(0, theme::space_sm);
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
     ImGui::Text("  %s", detail);
     ImGui::PopStyleColor();
@@ -34,28 +26,32 @@ void OverviewPanel::draw() {
     ImGuiIO& io = ImGui::GetIO();
 
     // Metric tiles row --------------------------------------------------------
-    const float col_w = (ImGui::GetContentRegionAvail().x - 20) / 3.0f;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const int cols = std::min(3, std::max(1,
+        int((avail + theme::card_gap) / (theme::card_min_w + theme::card_gap))));
+    const float col_w = (avail - (cols - 1) * theme::card_gap) / cols;
     auto tile = [&](const char* label, const char* value, ImVec4 accent_col) {
-        ImGui::BeginChild(label, ImVec2(col_w, 72), false,
+        ImGui::BeginChild(label, ImVec2(col_w, theme::card_h_sm), false,
                           ImGuiWindowFlags_NoScrollbar);
         ImDrawList*  dl = ImGui::GetWindowDrawList();
         const ImVec2 p0 = ImGui::GetWindowPos();
         const ImVec2 p1 = p0 + ImGui::GetWindowSize();
-        dl->AddRectFilled(p0, p1, theme::to_u32(theme::bg_surface), theme::corner_md);
-        dl->AddRectFilled(p0, p0 + ImVec2(3, p1.y - p0.y),
-                          theme::to_u32(accent_col), theme::corner_md,
+        dl->AddRectFilled(p0, p1, theme::to_u32(theme::bg_surface), theme::radius_lg);
+        dl->AddRectFilled(p0, p0 + ImVec2(theme::card_stripe_w, p1.y - p0.y),
+                          theme::to_u32(accent_col), theme::radius_lg,
                           ImDrawFlags_RoundCornersLeft);
 
-        ImGui::SetCursorPos(ImVec2(16, 12));
+        ImGui::SetCursorPos(ImVec2(theme::card_pad_x, theme::card_pad_y));
         ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-        ImGui::SetWindowFontScale(0.84f);
+        ImGui::SetWindowFontScale(theme::scale_caption);
         ImGui::TextUnformatted(label);
         ImGui::SetWindowFontScale(1.00f);
         ImGui::PopStyleColor();
 
-        ImGui::SetCursorPos(ImVec2(16, 32));
+        ImGui::SetCursorPos(ImVec2(theme::card_pad_x,
+                                   theme::card_pad_y + theme::space_lg + theme::space_xxs));
         ImGui::PushStyleColor(ImGuiCol_Text, theme::text_primary);
-        ImGui::SetWindowFontScale(1.40f);
+        ImGui::SetWindowFontScale(theme::scale_metric);
         ImGui::TextUnformatted(value);
         ImGui::SetWindowFontScale(1.00f);
         ImGui::PopStyleColor();
@@ -67,19 +63,34 @@ void OverviewPanel::draw() {
     char ms [32]; std::snprintf(ms,  sizeof(ms),  "%.2f ms", 1000.0f / io.Framerate);
     char frm[32]; std::snprintf(frm, sizeof(frm), "%d", ImGui::GetFrameCount());
 
-    tile(L("overview.framerate").data(),  fps, theme::accent);
-    ImGui::SameLine(); tile(L("overview.frame_time").data(), ms,  theme::info);
-    ImGui::SameLine(); tile(L("overview.frames").data(),     frm, theme::good);
+    tile(L("overview.framerate").data(), fps, theme::accent);
+    if (cols > 1) {
+        ImGui::SameLine(0, theme::card_gap);
+        tile(L("overview.frame_time").data(), ms, theme::info);
+    }
+    if (cols > 2) {
+        ImGui::SameLine(0, theme::card_gap);
+        tile(L("overview.frames").data(), frm, theme::good);
+    }
+    if (cols == 1) {
+        ImGui::Dummy(ImVec2(0, theme::card_gap));
+        tile(L("overview.frame_time").data(), ms, theme::info);
+        ImGui::Dummy(ImVec2(0, theme::card_gap));
+        tile(L("overview.frames").data(), frm, theme::good);
+    } else if (cols == 2) {
+        ImGui::Dummy(ImVec2(0, theme::card_gap));
+        tile(L("overview.frames").data(), frm, theme::good);
+    }
 
-    ImGui::Dummy(ImVec2(0, 12));
+    ImGui::Dummy(ImVec2(0, theme::card_gap));
 
     // Subsystem statuses ------------------------------------------------------
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::SetWindowFontScale(0.86f);
+    ImGui::SetWindowFontScale(theme::scale_caption);
     ImGui::TextUnformatted(L("overview.subsystems").data());
     ImGui::SetWindowFontScale(1.00f);
     ImGui::PopStyleColor();
-    ImGui::Dummy(ImVec2(0, 4));
+    ImGui::Dummy(ImVec2(0, theme::space_xs));
 
     draw_status_row("Dx11Backend",
                     true, "vtable-scanned Present + ResizeBuffers");
@@ -95,7 +106,7 @@ void OverviewPanel::draw() {
                         ? "attached to neox_engine.dll CPython"
                         : "not attached (host has no CPython exports)");
 
-    ImGui::Dummy(ImVec2(0, 16));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
     ImGui::TextWrapped("%s", L("overview.intro").data());
     ImGui::PopStyleColor();
