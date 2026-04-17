@@ -7,6 +7,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 namespace dxs {
@@ -15,6 +16,15 @@ namespace {
 constexpr double kToastDurationSec = 2.0;
 constexpr float  kWindowMinW       = 720.0f;
 constexpr float  kWindowMinH       = 420.0f;
+
+// Exponential smoothing: brings current toward target at a rate that takes
+// `half_life` seconds to cover half the remaining distance. Framerate-indep
+// so the animation feels the same at 30 vs 144 fps.
+float smooth(float current, float target, float half_life_sec, float dt) {
+    if (half_life_sec <= 0.0f) return target;
+    const float factor = 1.0f - std::pow(0.5f, dt / half_life_sec);
+    return current + (target - current) * factor;
+}
 }
 
 ClickGui& ClickGui::instance() {
@@ -42,14 +52,15 @@ void ClickGui::toast(std::string msg) {
 
 void ClickGui::draw() {
     if (!visible_) {
-        window_anim_start_ = 0.0;   // reset so a re-show animates again
+        window_anim_start_ = 0.0;
+        sel_bar_ready_     = false;
         return;
     }
     const double now = ImGui::GetTime();
     if (window_anim_start_ <= 0.0) window_anim_start_ = now;
 
-    const auto win_anim   = anim::compute(now, window_anim_start_, 0.32);
-    const auto panel_anim = anim::compute(now, panel_anim_start_,  0.20);
+    const auto win_anim   = anim::compute(now, window_anim_start_, 0.36);
+    const auto panel_anim = anim::compute(now, panel_anim_start_,  0.26);
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     const ImVec2 default_size{960, 600};
@@ -62,16 +73,16 @@ void ClickGui::draw() {
         ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse;
 
-    ImGui::PushStyleVar  (ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::PushStyleVar  (ImGuiStyleVar_Alpha, win_anim.alpha);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, win_anim.alpha);
     const bool open = ImGui::Begin("##dxsense_root", nullptr, flags);
     ImGui::PopStyleVar(2);
     if (!open) { ImGui::End(); return; }
 
-    // Custom top chrome (logo + accent bar) so the window looks distinct.
-    const ImVec2 top_pos  = ImGui::GetCursorScreenPos();
-    const float  avail_w  = ImGui::GetContentRegionAvail().x;
-    ImDrawList*  dl       = ImGui::GetWindowDrawList();
+    // Custom header chrome with a continuously pulsing accent dot.
+    const ImVec2 top_pos = ImGui::GetCursorScreenPos();
+    const float  avail_w = ImGui::GetContentRegionAvail().x;
+    ImDrawList*  dl      = ImGui::GetWindowDrawList();
     dl->AddRectFilled(top_pos, top_pos + ImVec2(avail_w, theme::header_h),
                       theme::to_u32(theme::bg_surface),
                       theme::corner_md, ImDrawFlags_RoundCornersTop);
@@ -79,9 +90,14 @@ void ClickGui::draw() {
                 top_pos + ImVec2(avail_w, theme::header_h - 1),
                 theme::to_u32(theme::divider), 1.0f);
 
-    // Accent dot next to the name — doubles as a focus indicator.
-    const ImVec2 dot_c = top_pos + ImVec2(18, theme::header_h * 0.5f);
-    dl->AddCircleFilled(dot_c, 4.5f, theme::to_u32(theme::accent));
+    // Breathing accent dot with halo.
+    const float  pulse     = 0.55f + 0.45f * static_cast<float>(
+                                 std::sin(now * 2.5));
+    const ImVec2 dot_c     = top_pos + ImVec2(18, theme::header_h * 0.5f);
+    ImVec4 halo = theme::accent; halo.w = 0.25f * pulse;
+    dl->AddCircleFilled(dot_c, 8.5f + pulse * 2.5f, theme::to_u32(halo), 24);
+    ImVec4 core = theme::accent; core.w = 0.85f + 0.15f * pulse;
+    dl->AddCircleFilled(dot_c, 4.5f, theme::to_u32(core), 24);
 
     ImGui::SetCursorScreenPos(top_pos + ImVec2(32, 11));
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_primary);
@@ -92,7 +108,6 @@ void ClickGui::draw() {
     ImGui::TextUnformatted("  v0.1  ·  dwrg / NeoX3");
     ImGui::PopStyleColor();
 
-    // Right-aligned fps readout in the header.
     char fps_text[32];
     std::snprintf(fps_text, sizeof(fps_text), "%.0f fps", ImGui::GetIO().Framerate);
     const ImVec2 fps_size = ImGui::CalcTextSize(fps_text);
@@ -103,13 +118,15 @@ void ClickGui::draw() {
 
     ImGui::SetCursorScreenPos(top_pos + ImVec2(0, theme::header_h));
 
-    // Body split: sidebar + content. Panel content fades in quickly when
-    // the selection changes so the switch feels crisp instead of jumpy.
     ImGui::BeginChild("##dxs_body", ImVec2(avail_w, 0), false,
                       ImGuiWindowFlags_NoScrollbar);
     draw_sidebar();
     ImGui::SameLine(0, 0);
+
+    // Content pushed right by a decaying offset for slide-in feel.
+    const float slide_offset = (1.0f - panel_anim.alpha) * 28.0f;
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, panel_anim.alpha);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + slide_offset);
     draw_content();
     ImGui::PopStyleVar();
     ImGui::EndChild();
@@ -126,7 +143,6 @@ void ClickGui::draw_sidebar() {
                       ImVec2(theme::sidebar_w, 0), false,
                       ImGuiWindowFlags_NoScrollbar);
 
-    // Group panels by category while preserving registration order.
     std::map<std::string, std::vector<IPanel*>> groups;
     std::vector<std::string>                    group_order;
     for (auto& p : panels_) {
@@ -134,6 +150,13 @@ void ClickGui::draw_sidebar() {
         if (!groups.count(cat)) group_order.push_back(cat);
         groups[cat].push_back(p.get());
     }
+
+    ImDrawList* dl    = ImGui::GetWindowDrawList();
+    const float dt    = ImGui::GetIO().DeltaTime;
+    float       sel_y = 0.0f;
+    float       sel_h = 0.0f;
+    bool        sel_found = false;
+    std::unordered_set<std::string> hover_now;
 
     for (const auto& cat : group_order) {
         if (!cat.empty()) {
@@ -152,38 +175,69 @@ void ClickGui::draw_sidebar() {
             const bool active = (selected_id_ == p->id());
             ImGui::PushID(p->id().data());
 
-            // Pixel-aligned row: full-width selectable as background, then
-            // we draw the icon + label manually so they line up across panels
-            // regardless of icon width. Indent by a fixed amount instead of
-            // prefixing spaces (the earlier approach drifted with font).
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 6));
-            ImGui::PushStyleColor(ImGuiCol_Text,
-                                  active ? theme::accent : theme::text_primary);
             const ImVec2 cursor = ImGui::GetCursorScreenPos();
             const float  row_w  = ImGui::GetContentRegionAvail().x;
+            // Transparent selectable — we paint our own background/highlight.
+            ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0,0,0,0));
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0,0,0,0));
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(0,0,0,0));
             if (ImGui::Selectable("##row", active,
                                   ImGuiSelectableFlags_AllowDoubleClick,
                                   ImVec2(row_w, theme::row_h))) {
                 select(p->id());
             }
+            const bool hovered = ImGui::IsItemHovered();
+            ImGui::PopStyleColor(3);
 
-            // Overlay icon (24 px column) + title.
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            const float  text_y = cursor.y + (theme::row_h - ImGui::GetTextLineHeight()) * 0.5f;
-            const auto   col    = theme::to_u32(active ? theme::accent : theme::text_primary);
+            // Hover glow — subtle amber tint rect behind the row.
+            if (hovered) {
+                hover_now.insert(std::string(p->id()));
+                ImVec4 glow = theme::accent_soft; glow.w *= 0.65f;
+                dl->AddRectFilled(cursor, cursor + ImVec2(row_w, theme::row_h),
+                                  theme::to_u32(glow), theme::corner_sm);
+            }
+
+            if (active) {
+                sel_y     = cursor.y;
+                sel_h     = theme::row_h;
+                sel_found = true;
+            }
+
+            const float text_y = cursor.y + (theme::row_h - ImGui::GetTextLineHeight()) * 0.5f;
+            const auto  col    = theme::to_u32(active ? theme::accent : theme::text_primary);
             std::string_view ic = p->icon();
             if (!ic.empty())
-                dl->AddText(ImVec2(cursor.x + 10, text_y),  col,
+                dl->AddText(ImVec2(cursor.x + 18, text_y),  col,
                             ic.data(), ic.data() + ic.size());
-            dl->AddText(ImVec2(cursor.x + 34, text_y), col,
+            dl->AddText(ImVec2(cursor.x + 42, text_y), col,
                         p->title().data(),
                         p->title().data() + p->title().size());
 
-            ImGui::PopStyleColor();
             ImGui::PopStyleVar();
             ImGui::PopID();
         }
     }
+
+    // Animated selection indicator — 3 px amber bar on the left edge.
+    if (sel_found) {
+        if (!sel_bar_ready_) {
+            sel_bar_y_      = sel_y;
+            sel_bar_h_      = sel_h;
+            sel_bar_target_ = sel_y;
+            sel_bar_ready_  = true;
+        } else {
+            sel_bar_target_ = sel_y;
+            sel_bar_y_      = smooth(sel_bar_y_, sel_bar_target_, 0.08f, dt);
+            sel_bar_h_      = smooth(sel_bar_h_, sel_h,           0.08f, dt);
+        }
+        const ImVec2 wp = ImGui::GetWindowPos();
+        const ImVec2 p0 = ImVec2(wp.x, sel_bar_y_ + 4);
+        const ImVec2 p1 = ImVec2(wp.x + 3, sel_bar_y_ + sel_bar_h_ - 4);
+        dl->AddRectFilled(p0, p1, theme::to_u32(theme::accent), 1.5f);
+    }
+
+    hover_hot_ = std::move(hover_now);
 
     ImGui::EndChild();
     ImGui::PopStyleColor();

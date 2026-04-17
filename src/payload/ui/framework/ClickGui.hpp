@@ -2,6 +2,7 @@
 
 #include "IPanel.hpp"
 
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -48,10 +49,20 @@ private:
     std::vector<Toast>                   toasts_;
 
     // Fade-in + scale animation — started on first-time visibility and when
-    // the panel selection changes. Kept as simple doubles so the frame
-    // callback is branch-free in steady state.
+    // the panel selection changes.
     double                               window_anim_start_ = 0.0;
     double                               panel_anim_start_  = 0.0;
+
+    // Animated sidebar selection indicator (the amber bar on the left edge
+    // of the active row). Smoothly glides between rows instead of jumping.
+    float                                sel_bar_y_      = 0.0f;
+    float                                sel_bar_target_ = 0.0f;
+    float                                sel_bar_h_      = 0.0f;
+    bool                                 sel_bar_ready_  = false;
+
+    // Per-row hover animation store — last-hovered timestamp per panel id so
+    // we can fade the hover glow in/out smoothly.
+    std::unordered_set<std::string>      hover_hot_;  // currently hovered
 };
 
 }  // namespace dxs

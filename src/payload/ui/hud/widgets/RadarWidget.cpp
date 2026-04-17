@@ -92,11 +92,41 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
     dl->AddCircleFilled(centre, 3.5f, theme::to_u32(theme::accent));
     dl->AddCircle      (centre, 6.0f, theme::to_u32(theme::accent_edge), 16, 1.0f);
 
+    // --- Rotating sweep (alive feel) -----------------------------------------
+    const double t = ImGui::GetTime();
+    const float  ang = static_cast<float>(std::fmod(t * 0.9, 6.28318));
+    const ImVec2 sweep_end = centre + ImVec2(std::cos(ang) * radius,
+                                             std::sin(ang) * radius);
+    ImVec4 sweep = theme::accent; sweep.w = 0.35f;
+    dl->AddLine(centre, sweep_end, theme::to_u32(sweep), 1.2f);
+    // Trailing sector fade — a few lines slightly behind the sweep.
+    for (int i = 1; i <= 6; ++i) {
+        const float a2 = ang - i * 0.05f;
+        ImVec4 trail = sweep; trail.w = 0.28f - i * 0.04f;
+        if (trail.w <= 0) break;
+        dl->AddLine(centre,
+                    centre + ImVec2(std::cos(a2) * radius, std::sin(a2) * radius),
+                    theme::to_u32(trail), 1.0f);
+    }
+
     // --- Readouts ------------------------------------------------------------
-    char lbl[48];
+    char lbl[64];
     std::snprintf(lbl, sizeof(lbl), "%.0fm  ·  %d", range_, plotted);
-    dl->AddText(centre + ImVec2(-28, radius - 14),
+    dl->AddText(centre + ImVec2(-30, radius - 16),
                 theme::to_u32(theme::text_muted), lbl);
+
+    // Honest placeholder badge — until GameMemory exposes the localplayer
+    // pointer the origin is the centroid of all visible entities, not the
+    // actual player position. The dots are relative, not absolute.
+    ImVec4 tag = theme::warn; tag.w = 0.85f;
+    const char* badge = count_used > 0 ? "relative" : "no data";
+    const ImVec2 badge_sz = ImGui::CalcTextSize(badge);
+    const ImVec2 badge_tl = pos + ImVec2(size.x - badge_sz.x - 14, 8);
+    ImVec4 badge_bg = theme::bg_surface; badge_bg.w = 0.85f;
+    dl->AddRectFilled(badge_tl - ImVec2(6, 3),
+                      badge_tl + badge_sz + ImVec2(6, 3),
+                      theme::to_u32(badge_bg), 3.0f);
+    dl->AddText(badge_tl, theme::to_u32(tag), badge);
 }
 
 void RadarWidget::draw_settings() {
