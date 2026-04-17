@@ -3,31 +3,35 @@
 #include "core/Config.hpp"
 #include "game/CameraSampler.hpp"
 #include "ui/framework/Theme.hpp"
-#include "ui/panels/EntitiesPanel.hpp"
 
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 #include <imgui.h>
 
 namespace dxs {
 
 namespace {
 
-// Parse a "pos=(x,y,z)" token out of the extras field. Returns false if not
-// present or malformed — the dot is then simply skipped.
-bool parse_pos(const std::string& extras, float& x, float& y, float& z) {
-    const auto p = extras.find("pos=(");
-    if (p == std::string::npos) return false;
-    return std::sscanf(extras.c_str() + p + 5, "%f,%f,%f", &x, &y, &z) == 3;
+// NeoX3 / dwrg unit_type2des_str:
+//   1 BUTCHER  2 CIVILIAN  3 GENERATOR  4 HOOK  5 BOX  6 DOOR  7 WOOD
+//   8 PANEL    9 CUPBOARD  10 CAVE      11 CROW 12 SWITCH  510 SPIRIT
+ImU32 colour_for_kind(int kind) {
+    switch (kind) {
+        case 1:  return theme::to_u32(theme::bad);     // hunter — red
+        case 2:  return theme::to_u32(theme::good);    // survivor — green
+        case 3:  return theme::to_u32(theme::info);    // generator — blue
+        case 4:  return theme::to_u32(theme::warn);    // hook — amber
+        case 6:  return theme::to_u32(theme::accent);  // door — accent
+        case 510:return theme::to_u32(theme::info);    // spirit — blue
+        default: return theme::to_u32(theme::text_muted);
+    }
 }
 
-// Colour tier by entity kind — survivors warm, hunter red, props neutral.
-ImU32 colour_for(const std::string& kind) {
-    if (kind == "Hunter")                       return theme::to_u32(theme::bad);
-    if (kind == "Survivor" || kind == "Avatar") return theme::to_u32(theme::good);
-    if (kind == "Soul")                         return theme::to_u32(theme::info);
-    return theme::to_u32(theme::text_muted);
+bool is_survivor(int kind) { return kind == 2 || kind == 510; }
+bool is_hunter(int kind)   { return kind == 1; }
+bool is_prop(int kind) {
+    return kind == 3 || kind == 4 || kind == 5 || kind == 6 || kind == 7 ||
+           kind == 8 || kind == 9 || kind == 10 || kind == 11 || kind == 12;
 }
 
 }  // namespace
@@ -50,42 +54,37 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
                 theme::to_u32(theme::divider), 1.0f);
 
     // --- Origin + heading from the live camera sample ------------------------
-    // NeoX3 world: +y is vertical, the ground plane is XZ. A top-down radar
-    // therefore maps world (x, z) → screen (x, y). Heading rotates the plot
-    // so the player's forward always points up on the radar.
+    // NeoX3 world: +y is vertical, ground plane is XZ. Top-down radar maps
+    // world (x, z) → screen (x, y). Heading rotates the plot so the player's
+    // forward always points up on the radar.
     auto snap = CameraSampler::instance().snapshot();
     const bool have_origin = snap.player_ready || snap.camera_ready;
     const Vec3 origin = snap.player_ready ? snap.player_pos : snap.cam_pos;
 
-    // Yaw relative to world +Z, measured from the camera's forward vector.
     float cos_h = 1.0f, sin_h = 0.0f;
     if (snap.camera_ready) {
         const float fx = snap.cam_forward.x, fz = snap.cam_forward.z;
         const float len = std::sqrt(fx * fx + fz * fz);
         if (len > 1e-4f) {
-            // Rotate the radar so forward is up: invert the yaw.
             cos_h = fz / len;
             sin_h = fx / len;
         }
     }
 
-    // --- Entity plots --------------------------------------------------------
+    // --- Entity plots — consumed directly from CameraSampler::snapshot -------
     int plotted = 0;
-    const EntitiesPanel* ep = EntitiesPanel::global();
-    if (have_origin && ep) {
+    if (have_origin) {
         const float scale = radius / range_;
-        for (const auto& r : ep->rows()) {
-            if (r.kind == "Hunter" && !show_hunters_)     continue;
-            if ((r.kind == "Survivor" || r.kind == "Avatar") && !show_survivors_) continue;
-            if ((r.kind == "Prop" || r.kind == "Item" || r.kind == "Interactable"
-                 || r.kind == "CipherMachine" || r.kind == "Chair" || r.kind == "Gate")
-                && !show_props_) continue;
-            float px, py, pz;
-            if (!parse_pos(r.extras, px, py, pz)) continue;
+        for (const auto& u : snap.units) {
+            if (is_hunter(u.kind)   && !show_hunters_)   continue;
+            if (is_survivor(u.kind) && !show_survivors_) continue;
+            if (is_prop(u.kind)     && !show_props_)     continue;
 
-            // World-space delta on the ground plane (XZ).
-            const float wx = px - origin.x;
-            const float wz = pz - origin.z;
+            // Skip the local player itself — centre already plots them.
+            if (snap.player_ready && u.uid == snap.player_uid) continue;
+
+            const float wx = u.pos.x - origin.x;
+            const float wz = u.pos.z - origin.z;
             const float d  = std::sqrt(wx * wx + wz * wz);
             if (d > range_) continue;
 
@@ -93,7 +92,17 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
             const float lx = wx * cos_h - wz * sin_h;
             const float lz = wx * sin_h + wz * cos_h;
             const ImVec2 dot = centre + ImVec2(lx * scale, -lz * scale);
-            dl->AddCircleFilled(dot, 3.5f, colour_for(r.kind));
+
+            const float r_dot = is_hunter(u.kind) ? 4.5f
+                              : is_survivor(u.kind) ? 4.0f
+                              : 3.0f;
+            dl->AddCircleFilled(dot, r_dot, colour_for_kind(u.kind));
+
+            // Ring outline for hunters — they're the one that matters.
+            if (is_hunter(u.kind)) {
+                dl->AddCircle(dot, r_dot + 2.0f,
+                              theme::to_u32(theme::bad), 12, 1.2f);
+            }
             ++plotted;
         }
     }
@@ -109,7 +118,6 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
                                              std::sin(ang) * radius);
     ImVec4 sweep = theme::accent; sweep.w = 0.35f;
     dl->AddLine(centre, sweep_end, theme::to_u32(sweep), 1.2f);
-    // Trailing sector fade — a few lines slightly behind the sweep.
     for (int i = 1; i <= 6; ++i) {
         const float a2 = ang - i * 0.05f;
         ImVec4 trail = sweep; trail.w = 0.28f - i * 0.04f;
@@ -125,9 +133,6 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
     dl->AddText(centre + ImVec2(-30, radius - 16),
                 theme::to_u32(theme::text_muted), lbl);
 
-    // Status badge — green when we actually have the player's world-space
-    // origin from the camera sampler, amber when we're still relying on the
-    // camera pos (player not resolved), red when there's no live scene.
     ImVec4 tag;
     const char* badge;
     if (snap.player_ready)       { tag = theme::good; badge = "live"; }

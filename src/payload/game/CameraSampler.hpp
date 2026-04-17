@@ -49,6 +49,18 @@ public:
         std::uint64_t         player_uid = 0;
         Vec3                  player_pos{};
 
+        // Everything alive in the current match. Populated every tick from
+        // UnitManager.units_by_type so radar / raycast don't have to depend
+        // on the user having opened the EntitiesPanel.
+        struct Unit {
+            std::uint64_t uid  = 0;
+            int           kind = 0;   // 1=BUTCHER 2=CIVILIAN 3=GENERATOR 4=HOOK
+                                      // 5=BOX 6=DOOR 7=WOOD 8=PANEL 9=CUPBOARD
+                                      // 10=CAVE 11=CROW 12=SWITCH 510=SPIRIT
+            Vec3          pos{};
+        };
+        std::vector<Unit>     units;
+
         // Keyed by whatever uid the caller supplied to request_world_to_screen.
         std::unordered_map<std::uint64_t, std::pair<float, float>> screen;
 

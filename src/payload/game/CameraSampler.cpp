@@ -29,6 +29,8 @@ namespace {
 //   "CF fx fy fz rx ry rz ux uy uz"  fwd + right + up (unit vectors)
 //   "FOV deg"                        vertical FOV in degrees
 //   "PL uid x y z"                   local player uid + position (optional)
+//   "U uid kind x y z"               one line per live unit (kind per
+//                                    WorldBattle.unit_type2des_str)
 //   "S uid sx sy"                    one line per requested point (optional)
 //   "!E message"                     last-line error; parsing tolerates it
 //
@@ -143,17 +145,15 @@ def _install():
         print('V', *('%.6f' % v for v in view))
         print('P', *('%.6f' % v for v in proj))
 
+        # NeoX3: `cam.transformation` is the camera's world-space pose matrix
+        # (row-major; last row is world position). forward / right / up are
+        # PROPERTIES returning math3d.vector — not methods. cam.get_pos()
+        # exists but returns zeros on dwrg's build; read from translation.
         try:
-            cp = _vec3(cam.get_pos()) if hasattr(cam, 'get_pos') else (0.0, 0.0, 0.0)
-            print('CP %.4f %.4f %.4f' % cp)
-        except Exception:
-            pass
-        try:
-            fwd = cam.transformation.forward()
-            rgt = cam.transformation.right()
-            up  = cam.transformation.up()
+            T = cam.transformation
+            print('CP %.4f %.4f %.4f' % _vec3(T.translation))
             print('CF %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f' %
-                  (_vec3(fwd) + _vec3(rgt) + _vec3(up)))
+                  (_vec3(T.forward) + _vec3(T.right) + _vec3(T.up)))
         except Exception as e:
             print('!E basis:', type(e).__name__, e)
         try:
@@ -166,6 +166,24 @@ def _install():
         if lp is not None:
             uid, pos = lp
             print('PL %s %.4f %.4f %.4f' % (uid, pos[0], pos[1], pos[2]))
+
+        # Dump every live unit so radar / raycast get a live stream without
+        # depending on the user opening the EntitiesPanel.
+        um = _unit_manager()
+        if um is not None:
+            try:
+                for kind, bucket in um.units_by_type.items():
+                    for unit in bucket:
+                        try:
+                            uid = getattr(unit, 'uid', None)
+                            if uid is None: continue
+                            p = _vec3(unit.position)
+                            print('U %s %d %.4f %.4f %.4f' %
+                                  (uid, int(kind), p[0], p[1], p[2]))
+                        except Exception:
+                            pass
+            except Exception as e:
+                print('!E units:', type(e).__name__, e)
 
         if points:
             try:
@@ -353,6 +371,15 @@ bool CameraSampler::parse_output(const std::string& text, Snapshot& out) const {
                 out.player_ready = true;
                 out.player_uid = uid;
                 out.player_pos = { x, y, z };
+            }
+        } else if (line.rfind("U ", 0) == 0) {
+            unsigned long long uid = 0;
+            int kind = 0;
+            float x = 0, y = 0, z = 0;
+            if (std::sscanf(line.c_str() + 2, "%llu %d %f %f %f",
+                            &uid, &kind, &x, &y, &z) == 5) {
+                out.units.push_back(
+                    Snapshot::Unit{ uid, kind, Vec3{ x, y, z } });
             }
         } else if (line.rfind("S ", 0) == 0) {
             unsigned long long uid = 0;
