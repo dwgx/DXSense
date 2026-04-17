@@ -68,16 +68,43 @@ CANONICAL_PROBE = textwrap.dedent(r"""
 """).strip()
 
 
-def call(source: str) -> str:
+def call(source: str, isolate: bool = True) -> str:
+    """POST Python to the in-game bridge. If isolate, wraps the snippet so
+    stdout from OUR code is captured to a local buffer and delivered between
+    sentinels — this filters out the game's concurrent logging spam that
+    otherwise shares the same sys.stdout sink.
+    """
+    if isolate:
+        source = textwrap.dedent("""
+            import io as _dxs_io, sys as _dxs_sys, traceback as _dxs_tb
+            _dxs_buf = _dxs_io.StringIO()
+            _dxs_prev = _dxs_sys.stdout
+            _dxs_sys.stdout = _dxs_buf
+            try:
+        """) + textwrap.indent(source, "    ") + textwrap.dedent("""
+            except Exception:
+                _dxs_tb.print_exc(file=_dxs_buf)
+            finally:
+                _dxs_sys.stdout = _dxs_prev
+                print("==DXS_BEGIN==")
+                print(_dxs_buf.getvalue())
+                print("==DXS_END==")
+        """)
     data = source.encode("utf-8")
     req = urllib.request.Request(HOST, data=data, method="POST",
                                  headers={"Content-Type": "text/plain"})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            return r.read().decode("utf-8", errors="replace")
+            raw = r.read().decode("utf-8", errors="replace")
     except urllib.error.URLError as e:
         return f"!! remote bridge unreachable: {e}\n" \
                f"   is DXSense injected and the bridge enabled (Config remote.enabled)?\n"
+    if isolate:
+        a = raw.find("==DXS_BEGIN==")
+        b = raw.find("==DXS_END==", a + 1)
+        if a >= 0 and b > a:
+            return raw[a + len("==DXS_BEGIN==") : b].strip("\n") + "\n"
+    return raw
 
 
 def main() -> int:
