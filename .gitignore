@@ -17,3 +17,6 @@ CMakeSettings.json
 
 # Local reverse-engineering artefacts (big binaries, IDA databases, extracted assets)
 analysis/
+*.db
+scripts/_*.py
+scripts/__pycache__/
