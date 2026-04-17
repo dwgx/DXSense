@@ -12,7 +12,7 @@
 #include "ui/hud/widgets/StatsWidget.hpp"
 #include "ui/panels/EntitiesPanel.hpp"
 #include "ui/panels/HooksPanel.hpp"
-#include "ui/panels/HudPanel.hpp"
+#include "ui/panels/ModulesPanel.hpp"
 #include "ui/panels/MatrixPanel.hpp"
 #include "ui/panels/MemoryPanel.hpp"
 #include "ui/panels/OverviewPanel.hpp"
@@ -38,15 +38,12 @@ void Overlay::configure_style() {
 
 void Overlay::register_keybinds() {
     auto& kb = Keybinds::instance();
+    // Only the overlay toggle is a hard-coded shortcut. Everything else is
+    // reachable from the Modules panel so the user isn't trying to remember
+    // F-keys. The overlay toggle is editable in Settings like any other.
     kb.register_action("overlay.toggle",
         Keybinds::Binding{VK_INSERT, false, false, false},
         "Toggle overlay");
-    kb.register_action("hud.toggle_edit",
-        Keybinds::Binding{VK_F4, false, false, false},
-        "HUD edit mode");
-    kb.register_action("hud.toggle_global",
-        Keybinds::Binding{VK_F3, false, false, false},
-        "HUD global on/off");
 }
 
 void Overlay::register_default_panels() {
@@ -60,7 +57,7 @@ void Overlay::register_default_panels() {
     gui.register_panel(std::make_unique<MemoryPanel>());
     gui.register_panel(std::make_unique<PythonReplPanel>());
     gui.register_panel(std::make_unique<QuickActionsPanel>());
-    gui.register_panel(std::make_unique<HudPanel>());
+    gui.register_panel(std::make_unique<ModulesPanel>());
     gui.register_panel(std::make_unique<SettingsPanel>());
 
     auto& hud = HudManager::instance();

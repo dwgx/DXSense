@@ -59,12 +59,6 @@ LRESULT CALLBACK WndProcHook::thunk(HWND h, UINT msg, WPARAM w, LPARAM l) {
             Overlay::instance().set_visible(v);
             ClickGui::instance().set_visible(v);
             return 0;
-        } else if (action == "hud.toggle_edit") {
-            HudManager::instance().set_edit_mode(!HudManager::instance().edit_mode());
-            return 0;
-        } else if (action == "hud.toggle_global") {
-            HudManager::instance().set_global_enabled(!HudManager::instance().global_enabled());
-            return 0;
         }
     }
 

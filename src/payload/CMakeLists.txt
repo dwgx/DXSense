@@ -21,8 +21,8 @@ add_library(dxsense SHARED
     ui/hud/widgets/StatsWidget.cpp
     ui/panels/EntitiesPanel.cpp
     ui/panels/HooksPanel.cpp
-    ui/panels/HudPanel.cpp
     ui/panels/MatrixPanel.cpp
+    ui/panels/ModulesPanel.cpp
     ui/panels/MemoryPanel.cpp
     ui/panels/OverviewPanel.cpp
     ui/panels/PythonReplPanel.cpp

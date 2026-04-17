@@ -32,6 +32,16 @@ constexpr Entry kStrings[] = {
     {"panel.quick_actions.title",         "Quick Actions",               "快捷动作"},
     {"panel.settings.title",              "Settings",                    "设置"},
     {"panel.hud.title",                   "HUD Editor",                  "HUD 编辑器"},
+    {"panel.modules.title",               "Modules",                     "模块"},
+    {"modules.intro",
+     "Everything with a visual is a module. Toggle to enable, gear to "
+     "configure, turn on edit-positions to drag widgets around on the viewport.",
+     "所有在游戏画面上显示的组件都是模块。开关控制启停，齿轮打开配置，开启 "
+     "编辑位置 后可以在画面上拖动调整位置。"},
+    {"modules.global",                    "All modules",                 "全部模块"},
+    {"modules.edit_positions",            "Edit positions",              "编辑位置"},
+    {"modules.reset_position",            "Reset position",              "重置位置"},
+    {"modules.reset_size",                "Reset size",                  "重置大小"},
 
     {"overview.framerate",                "FRAMERATE",                   "帧率"},
     {"overview.frame_time",               "FRAME TIME",                  "每帧耗时"},
