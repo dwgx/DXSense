@@ -269,25 +269,52 @@ CameraSampler& CameraSampler::instance() {
 }
 
 void CameraSampler::set_rate_hz(float hz) {
-    std::scoped_lock lk(mtx_);
     if (hz < 1.0f)   hz = 1.0f;
     if (hz > 120.0f) hz = 120.0f;
-    interval_ = 1.0 / hz;
+    interval_.store(1.0 / hz);
+    wake_cv_.notify_all();
 }
 
 float CameraSampler::rate_hz() const {
-    std::scoped_lock lk(mtx_);
-    return static_cast<float>(1.0 / interval_);
+    return static_cast<float>(1.0 / interval_.load());
 }
 
 void CameraSampler::set_enabled(bool on) {
-    std::scoped_lock lk(mtx_);
-    enabled_ = on;
+    enabled_.store(on);
+    wake_cv_.notify_all();
 }
 
-bool CameraSampler::enabled() const {
-    std::scoped_lock lk(mtx_);
-    return enabled_;
+bool CameraSampler::enabled() const { return enabled_.load(); }
+
+void CameraSampler::start() {
+    if (worker_.joinable()) return;
+    worker_stop_.store(false);
+    worker_ = std::thread(&CameraSampler::worker_loop, this);
+}
+
+void CameraSampler::stop() {
+    if (!worker_.joinable()) return;
+    worker_stop_.store(true);
+    wake_cv_.notify_all();
+    worker_.join();
+}
+
+void CameraSampler::worker_loop() {
+    using clock = std::chrono::steady_clock;
+    while (!worker_stop_.load()) {
+        const auto next = clock::now() + std::chrono::duration<double>(interval_.load());
+        if (enabled_.load() && PythonBridge::instance().ready()) {
+            sample_now();
+        }
+        std::unique_lock lk(wake_mtx_);
+        wake_cv_.wait_until(lk, next, [&]{ return worker_stop_.load(); });
+    }
+}
+
+double CameraSampler::now() {
+    static const auto s_epoch = std::chrono::steady_clock::now();
+    return std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - s_epoch).count();
 }
 
 CameraSampler::Snapshot CameraSampler::snapshot() const {
@@ -299,20 +326,6 @@ void CameraSampler::request_world_to_screen(
     std::vector<std::pair<std::uint64_t, Vec3>> pts) {
     std::scoped_lock lk(mtx_);
     request_ = std::move(pts);
-}
-
-void CameraSampler::on_frame() {
-    {
-        std::scoped_lock lk(mtx_);
-        if (!enabled_) return;
-    }
-    const double now = ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0;
-    {
-        std::scoped_lock lk(mtx_);
-        if (now < next_tick_at_) return;
-        next_tick_at_ = now + interval_;
-    }
-    sample_now();
 }
 
 void CameraSampler::sample_now() {
@@ -348,10 +361,12 @@ void CameraSampler::sample_now() {
     std::string output = bridge.exec_and_collect(src);
     const auto t1 = std::chrono::steady_clock::now();
 
+    // Worker thread can't touch ImGui; use our own process-start-relative
+    // clock exposed via CameraSampler::now() so the render thread computes
+    // sample age on the same axis.
     Snapshot next{};
-    next.sample_time = ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0;
-    next.last_duration =
-        std::chrono::duration<double>(t1 - t0).count();
+    next.sample_time   = CameraSampler::now();
+    next.last_duration = std::chrono::duration<double>(t1 - t0).count();
 
     if (!parse_output(output, next)) {
         // Parsing didn't find a valid "R" line — treat as not-ready; keep

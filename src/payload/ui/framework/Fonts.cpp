@@ -95,9 +95,15 @@ void load() {
         cfg_cjk.PixelSnapH          = true;
         cfg_cjk.RasterizerMultiply  = 1.00f;
         cfg_cjk.GlyphOffset         = ImVec2(0, 1);
+        // ChineseFull covers all ~21K CJK Unified Ideographs. We pay a
+        // larger atlas (~4K x 4K) in exchange for never rendering tofu on
+        // any Simplified or Traditional character the game or localization
+        // strings may contain. The ChineseSimplifiedCommon range used to
+        // be here, but it dropped characters like 擎 / 次 / 帧 that appear
+        // in our own UI strings.
         io.Fonts->AddFontFromFileTTF(
             cjk.string().c_str(), 16.0f, &cfg_cjk,
-            io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+            io.Fonts->GetGlyphRangesChineseFull());
     }
 
     // --- Icons ----------------------------------------------------------------

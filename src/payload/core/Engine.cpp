@@ -5,6 +5,7 @@
 #include "Localization.hpp"
 #include "Logger.hpp"
 #include "RemoteBridge.hpp"
+#include "game/CameraSampler.hpp"
 #include "game/GameMemory.hpp"
 #include "hook/HookManager.hpp"
 #include "hook/WndProcHook.hpp"
@@ -91,6 +92,10 @@ void Engine::start(void* this_module) {
         EventLog::instance().start();
     }
 
+    // Camera sampler runs on its OWN thread so Python GIL contention never
+    // stalls the render pipeline. Must start after PythonBridge is ready.
+    CameraSampler::instance().start();
+
     // Kick the boot splash — renders on the very next frame for ~1.4 s.
     splash::begin();
 }
@@ -114,6 +119,7 @@ void Engine::stop() {
         backend_.reset();
     }
 
+    CameraSampler::instance().stop();
     RemoteBridge::instance().stop();
     EventLog::instance().stop();
 

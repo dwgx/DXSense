@@ -1,9 +1,12 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -81,13 +84,25 @@ public:
     // Cheap snapshot copy. Call from render thread.
     Snapshot snapshot() const;
 
+    // "Now" on the same steady-clock axis as Snapshot::sample_time. Render
+    // thread callers use this to compute sample age without the worker's
+    // ImGui-free clock diverging from ImGui::GetTime().
+    static double now();
+
     // Register world positions the widgets want projected on the NEXT tick.
     // Replaces the current request set — callers should re-submit their
     // full set each frame (this is what widgets naturally do anyway).
     void request_world_to_screen(std::vector<std::pair<std::uint64_t, Vec3>> pts);
 
-    // Drives the throttled sample tick. Safe to call every frame.
-    void on_frame();
+    // Lifecycle — start the background sampling thread. Render thread
+    // must never block on Python execution, so the sampler runs on its
+    // own worker that acquires the GIL and publishes Snapshots atomically.
+    void start();
+    void stop();
+
+    // Deprecated no-op. Retained so existing Overlay::draw call sites keep
+    // compiling during the transition.
+    void on_frame() {}
 
     // Knobs.
     void  set_rate_hz(float hz);
@@ -99,19 +114,24 @@ private:
     CameraSampler() = default;
     void sample_now();
     bool parse_output(const std::string& text, Snapshot& out) const;
-
     void diff_and_emit_events(const Snapshot& prev, const Snapshot& next);
+    void worker_loop();
 
     mutable std::mutex                                    mtx_;
     Snapshot                                              latest_{};
     std::vector<std::pair<std::uint64_t, Vec3>>           request_;
     bool                                                  helper_installed_ = false;
-    bool                                                  enabled_ = true;
-    double                                                next_tick_at_ = 0.0;
-    double                                                interval_ = 1.0 / 20.0;
+    std::atomic<bool>                                     enabled_{true};
+    std::atomic<double>                                   interval_{1.0 / 15.0};
+
+    // Worker thread + shutdown signalling.
+    std::thread                                           worker_;
+    std::atomic<bool>                                     worker_stop_{false};
+    std::mutex                                            wake_mtx_;
+    std::condition_variable                               wake_cv_;
 
     // Event emission throttle — heartbeat positions emit at ~1 Hz even
-    // though the sampler itself ticks at 20 Hz.
+    // though the sampler itself ticks at 15 Hz by default.
     double                                                next_heartbeat_at_ = 0.0;
     double                                                heartbeat_interval_ = 1.0;
 };

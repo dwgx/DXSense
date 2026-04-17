@@ -60,8 +60,9 @@ void MatrixPanel::draw() {
 
     // Status strip — tells the user whether the sampler is hot and how recent
     // the matrix values are. A dead camera usually means "not in a 3D scene".
-    const double now = ImGui::GetTime();
-    const double age = snap.sample_time > 0 ? now - snap.sample_time : -1.0;
+    const double age = snap.sample_time > 0
+        ? CameraSampler::now() - snap.sample_time
+        : -1.0;
 
     if (snap.camera_ready) {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::good);

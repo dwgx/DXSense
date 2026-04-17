@@ -31,6 +31,18 @@ void apply() {
     s.ButtonTextAlign      = {0.5f, 0.5f};
     s.SelectableTextAlign  = {0.0f, 0.5f};
 
+    // Higher-quality anti-aliasing: circle tessellation tolerance down a bit,
+    // curves segment-max lifted so big rounded panels don't show faceting.
+    // Both AntiAliasedLines and AntiAliasedFill are on by default, but we
+    // set explicitly for clarity — AntiAliasedLinesUseTex needs the font
+    // atlas to be built with ImFontAtlasFlags_NoBakedLines UNSET (it is by
+    // default), so lines get baked texture AA instead of per-frame geometry.
+    s.AntiAliasedLines         = true;
+    s.AntiAliasedLinesUseTex   = true;
+    s.AntiAliasedFill          = true;
+    s.CurveTessellationTol     = 1.0f;
+    s.CircleTessellationMaxError = 0.20f;
+
     ImVec4* c = s.Colors;
     c[ImGuiCol_Text]                  = text_primary;
     c[ImGuiCol_TextDisabled]          = text_faded;
