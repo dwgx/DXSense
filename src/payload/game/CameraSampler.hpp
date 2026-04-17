@@ -49,6 +49,14 @@ public:
         std::uint64_t         player_uid = 0;
         Vec3                  player_pos{};
 
+        // World / scene identity from WorldManager.cur_world.create_info.
+        // world_type == 0 is the main city-hall lobby; anything in the
+        // MATCH_WORLD_LIST (see project_neox3_internals.md) is a match.
+        int                   world_type = -1;
+        int                   scene_id   = 0;
+        std::string           world_class;   // class name of cur_world
+        bool                  in_battle  = false;  // LagMgr.in_battle
+
         // Everything alive in the current match. Populated every tick from
         // UnitManager.units_by_type so radar / raycast don't have to depend
         // on the user having opened the EntitiesPanel.

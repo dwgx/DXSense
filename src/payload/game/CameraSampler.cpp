@@ -30,6 +30,10 @@ namespace {
 //   "CP x y z"                       camera world position
 //   "CF fx fy fz rx ry rz ux uy uz"  fwd + right + up (unit vectors)
 //   "FOV deg"                        vertical FOV in degrees
+//   "W world_type scene_id class_name"
+//                                    scene identity; class_name has no
+//                                    spaces so it ends the record
+//   "B 0|1"                          LagMgr.in_battle flag
 //   "PL uid x y z"                   local player uid + position (optional)
 //   "U uid kind x y z"               one line per live unit (kind per
 //                                    WorldBattle.unit_type2des_str)
@@ -63,7 +67,42 @@ def _install():
                 return o
         return None
 
+    def _world_manager():
+        w = m._cache.get('wmgr')
+        if w is not None:
+            try:
+                if type(w).__name__ == 'WorldManager':
+                    return w
+            except Exception:
+                pass
+        for o in gc.get_objects():
+            if type(o).__name__ == 'WorldManager':
+                m._cache['wmgr'] = o
+                return o
+        return None
+
+    def _lag_mgr():
+        l = m._cache.get('lag')
+        if l is not None:
+            try:
+                if type(l).__name__ == 'LagMgr':
+                    return l
+            except Exception:
+                pass
+        for o in gc.get_objects():
+            if type(o).__name__ == 'LagMgr':
+                m._cache['lag'] = o
+                return o
+        return None
+
     def _world_battle():
+        wm = _world_manager()
+        if wm is not None:
+            wb = getattr(wm, 'battle_world', None) or getattr(wm, 'cur_match_world', None)
+            if wb is not None and type(wb).__name__ == 'WorldBattle':
+                m._cache['wb'] = wb
+                return wb
+        # Fallback to gc walk — slower but covers legacy code paths.
         w = m._cache.get('wb')
         if w is not None:
             try:
@@ -163,6 +202,19 @@ def _install():
             print('FOV %.4f' % float(fov))
         except Exception:
             pass
+
+        wm = _world_manager()
+        if wm is not None:
+            cur = getattr(wm, 'cur_world', None)
+            if cur is not None:
+                info = getattr(cur, 'create_info', None) or {}
+                wt  = int(info.get('world_type', -1)) if isinstance(info, dict) else -1
+                sid = int(info.get('scene_id', 0))    if isinstance(info, dict) else 0
+                cls = type(cur).__name__
+                print('W %d %d %s' % (wt, sid, cls))
+        lag = _lag_mgr()
+        if lag is not None:
+            print('B %d' % (1 if getattr(lag, 'in_battle', False) else 0))
 
         lp = _local_player()
         if lp is not None:
@@ -334,6 +386,18 @@ void CameraSampler::diff_and_emit_events(const Snapshot& prev, const Snapshot& n
     if (prev.camera_ready != next.camera_ready) {
         ev.emit(next.camera_ready ? "scene_enter" : "scene_exit");
     }
+    // World / scene-id transitions — triggered by menu → lobby → match etc.
+    if (prev.world_type != next.world_type || prev.scene_id != next.scene_id ||
+        prev.world_class != next.world_class) {
+        char buf[200];
+        std::snprintf(buf, sizeof(buf),
+                      R"("world_type":%d,"scene_id":%d,"class":"%s")",
+                      next.world_type, next.scene_id, next.world_class.c_str());
+        ev.emit("world_change", buf);
+    }
+    if (prev.in_battle != next.in_battle) {
+        ev.emit(next.in_battle ? "battle_entered" : "battle_exited");
+    }
     if (prev.player_ready != next.player_ready) {
         if (next.player_ready) {
             char buf[128];
@@ -376,20 +440,42 @@ void CameraSampler::diff_and_emit_events(const Snapshot& prev, const Snapshot& n
     }
 
     // Heartbeats — low-rate positional sample of hunter + local player.
-    // Cheap enough to just do in C++ once per second; lets us reconstruct
-    // movement paths offline without flooding the log at 20 Hz.
+    // Gate each emission on a movement threshold so a user idling in the
+    // lobby doesn't churn out one camera_tick per second forever. Positions
+    // still land in the log the moment anything actually moves.
     if (next.sample_time >= next_heartbeat_at_) {
         next_heartbeat_at_ = next.sample_time + heartbeat_interval_;
+        const float sq_epsilon_pos = 0.04f;   // ~0.2 m
+        const float sq_epsilon_dir = 0.001f;  // ~1.8° forward-vector delta
+
+        auto sq_dist3 = [](const Vec3& a, const Vec3& b) {
+            const float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+            return dx*dx + dy*dy + dz*dz;
+        };
+
         if (next.player_ready) {
-            char buf[160];
-            std::snprintf(buf, sizeof(buf),
-                          R"("uid":%llu,"pos":[%.2f,%.2f,%.2f])",
-                          static_cast<unsigned long long>(next.player_uid),
-                          next.player_pos.x, next.player_pos.y, next.player_pos.z);
-            ev.emit("player_tick", buf);
+            const bool moved = !prev.player_ready ||
+                prev.player_uid != next.player_uid ||
+                sq_dist3(prev.player_pos, next.player_pos) > sq_epsilon_pos;
+            if (moved) {
+                char buf[160];
+                std::snprintf(buf, sizeof(buf),
+                              R"("uid":%llu,"pos":[%.2f,%.2f,%.2f])",
+                              static_cast<unsigned long long>(next.player_uid),
+                              next.player_pos.x, next.player_pos.y, next.player_pos.z);
+                ev.emit("player_tick", buf);
+            }
         }
+        // Per-hunter throttle: match uids to previous sample to skip emit
+        // when nothing changed. Maps are small (≤4 hunters typically).
         for (const auto& u : next.units) {
-            if (u.kind != 1) continue;   // hunter only — the one we actually care about
+            if (u.kind != 1) continue;
+            Vec3 prev_pos{};
+            bool had_prev = false;
+            for (const auto& pu : prev.units) {
+                if (pu.uid == u.uid && pu.kind == 1) { prev_pos = pu.pos; had_prev = true; break; }
+            }
+            if (had_prev && sq_dist3(prev_pos, u.pos) <= sq_epsilon_pos) continue;
             char buf[160];
             std::snprintf(buf, sizeof(buf),
                           R"("uid":%llu,"pos":[%.2f,%.2f,%.2f])",
@@ -398,13 +484,18 @@ void CameraSampler::diff_and_emit_events(const Snapshot& prev, const Snapshot& n
             ev.emit("hunter_tick", buf);
         }
         if (next.camera_ready) {
-            char buf[200];
-            std::snprintf(buf, sizeof(buf),
-                          R"("pos":[%.2f,%.2f,%.2f],"fwd":[%.3f,%.3f,%.3f],"fov":%.1f)",
-                          next.cam_pos.x, next.cam_pos.y, next.cam_pos.z,
-                          next.cam_forward.x, next.cam_forward.y, next.cam_forward.z,
-                          next.fov_y);
-            ev.emit("camera_tick", buf);
+            const bool moved_cam = !prev.camera_ready ||
+                sq_dist3(prev.cam_pos, next.cam_pos) > sq_epsilon_pos ||
+                sq_dist3(prev.cam_forward, next.cam_forward) > sq_epsilon_dir;
+            if (moved_cam) {
+                char buf[200];
+                std::snprintf(buf, sizeof(buf),
+                              R"("pos":[%.2f,%.2f,%.2f],"fwd":[%.3f,%.3f,%.3f],"fov":%.1f)",
+                              next.cam_pos.x, next.cam_pos.y, next.cam_pos.z,
+                              next.cam_forward.x, next.cam_forward.y, next.cam_forward.z,
+                              next.fov_y);
+                ev.emit("camera_tick", buf);
+            }
         }
     }
 }
@@ -457,6 +548,20 @@ bool CameraSampler::parse_output(const std::string& text, Snapshot& out) const {
                         &out.cam_up.x,      &out.cam_up.y,      &out.cam_up.z);
         } else if (line.rfind("FOV ", 0) == 0) {
             std::sscanf(line.c_str() + 4, "%f", &out.fov_y);
+        } else if (line.rfind("W ", 0) == 0) {
+            int wt = -1, sid = 0;
+            char cls[64]{};
+            if (std::sscanf(line.c_str() + 2, "%d %d %63s",
+                            &wt, &sid, cls) >= 2) {
+                out.world_type = wt;
+                out.scene_id   = sid;
+                out.world_class = cls;
+            }
+        } else if (line.rfind("B ", 0) == 0) {
+            int v = 0;
+            if (std::sscanf(line.c_str() + 2, "%d", &v) == 1) {
+                out.in_battle = (v != 0);
+            }
         } else if (line.rfind("PL ", 0) == 0) {
             unsigned long long uid = 0;
             float x = 0, y = 0, z = 0;
