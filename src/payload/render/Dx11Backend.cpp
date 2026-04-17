@@ -116,17 +116,52 @@ bool Dx11Backend::acquire_vtable_targets() {
 }
 
 void Dx11Backend::ensure_runtime_bound(IDXGISwapChain* swapchain) {
-    if (imgui_ready_) return;
-
-    if (FAILED(swapchain->GetDevice(__uuidof(ID3D11Device),
-                                    reinterpret_cast<void**>(device_.GetAddressOf())))) {
-        return;
-    }
-    device_->GetImmediateContext(context_.GetAddressOf());
-
+    // Pull the current swapchain backbuffer size — we rebind the RTV (and
+    // ImGui's device objects) whenever it changes, regardless of whether
+    // ResizeBuffers was the mechanism. This is what makes the overlay
+    // survive resolution changes and fullscreen toggles on engines that
+    // recreate the swapchain rather than calling ResizeBuffers directly.
     DXGI_SWAP_CHAIN_DESC desc{};
     swapchain->GetDesc(&desc);
-    hwnd_ = desc.OutputWindow;
+
+    const bool swapchain_changed =
+        imgui_ready_ && (swapchain != bound_swapchain_);
+    const bool size_changed =
+        imgui_ready_ && !swapchain_changed &&
+        (desc.BufferDesc.Width  != bound_w_ ||
+         desc.BufferDesc.Height != bound_h_);
+
+    if (swapchain_changed) {
+        // New swapchain instance — everything the old one produced (device,
+        // context, RTV, ImGui backend state) is stale. Full rebuild.
+        DXS_INFO("DX11: swapchain reborn (old={:p} new={:p}), full rebind",
+                 static_cast<void*>(bound_swapchain_),
+                 static_cast<void*>(swapchain));
+        release_runtime();
+    }
+    if (size_changed) {
+        // Same swapchain but the backbuffer got resized under us without a
+        // ResizeBuffers hit (rare but happens on DXGI 1.5+ occlusion paths).
+        // We only need to re-create the RTV + ImGui device objects, not the
+        // whole backend.
+        DXS_INFO("DX11: backbuffer size changed ({}x{} -> {}x{}) without ResizeBuffers",
+                 bound_w_, bound_h_,
+                 desc.BufferDesc.Width, desc.BufferDesc.Height);
+        if (imgui_ready_) ImGui_ImplDX11_InvalidateDeviceObjects();
+        rtv_.Reset();
+    }
+
+    if (imgui_ready_ && !size_changed) return;
+
+    // --- Cold bind (or full rebuild after release_runtime) ------------------
+    if (!device_) {
+        if (FAILED(swapchain->GetDevice(__uuidof(ID3D11Device),
+                                        reinterpret_cast<void**>(device_.GetAddressOf())))) {
+            return;
+        }
+        device_->GetImmediateContext(context_.GetAddressOf());
+        hwnd_ = desc.OutputWindow;
+    }
 
     ComPtr<ID3D11Texture2D> back;
     if (FAILED(swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D),
@@ -135,15 +170,22 @@ void Dx11Backend::ensure_runtime_bound(IDXGISwapChain* swapchain) {
     }
     device_->CreateRenderTargetView(back.Get(), nullptr, rtv_.GetAddressOf());
 
-    ImGui_ImplWin32_Init(hwnd_);
-    ImGui_ImplDX11_Init(device_.Get(), context_.Get());
+    if (!imgui_ready_) {
+        ImGui_ImplWin32_Init(hwnd_);
+        ImGui_ImplDX11_Init(device_.Get(), context_.Get());
+        Engine::instance().attach_window(hwnd_);
+    } else {
+        // Warm path — just recreate ImGui's internal device objects.
+        ImGui_ImplDX11_CreateDeviceObjects();
+    }
 
-    // Subclass only after we know which HWND owns the swapchain.
-    Engine::instance().attach_window(hwnd_);
-
-    imgui_ready_ = true;
-    DXS_INFO("DX11 runtime bound (HWND=0x{:p}, RT=0x{:p})",
-             static_cast<void*>(hwnd_), static_cast<void*>(rtv_.Get()));
+    bound_swapchain_ = swapchain;
+    bound_w_         = desc.BufferDesc.Width;
+    bound_h_         = desc.BufferDesc.Height;
+    imgui_ready_     = true;
+    DXS_INFO("DX11 runtime bound (HWND=0x{:p}, RT=0x{:p}, {}x{})",
+             static_cast<void*>(hwnd_), static_cast<void*>(rtv_.Get()),
+             bound_w_, bound_h_);
 }
 
 void Dx11Backend::release_runtime() {
@@ -155,7 +197,10 @@ void Dx11Backend::release_runtime() {
     rtv_.Reset();
     context_.Reset();
     device_.Reset();
-    hwnd_ = nullptr;
+    hwnd_            = nullptr;
+    bound_swapchain_ = nullptr;
+    bound_w_         = 0;
+    bound_h_         = 0;
 }
 
 void Dx11Backend::render_frame(IDXGISwapChain* swapchain) {
@@ -201,6 +246,10 @@ HRESULT STDMETHODCALLTYPE Dx11Backend::resize_detour(IDXGISwapChain* sc, UINT co
                                                   self->rtv_.GetAddressOf());
         }
         ImGui_ImplDX11_CreateDeviceObjects();
+        // Capture the new dimensions so ensure_runtime_bound doesn't trip
+        // its size-changed branch on the very next Present.
+        self->bound_w_ = (w != 0) ? w : self->bound_w_;
+        self->bound_h_ = (h != 0) ? h : self->bound_h_;
     }
     return hr;
 }

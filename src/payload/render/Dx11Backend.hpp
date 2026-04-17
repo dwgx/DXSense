@@ -38,8 +38,11 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Device>           device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext>    context_;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv_;
-    HWND                                           hwnd_ = nullptr;
-    bool                                           imgui_ready_ = false;
+    HWND                                           hwnd_           = nullptr;
+    bool                                           imgui_ready_    = false;
+    IDXGISwapChain*                                bound_swapchain_ = nullptr; // raw cmp only
+    UINT                                           bound_w_         = 0;
+    UINT                                           bound_h_         = 0;
 };
 
 }  // namespace dxs
