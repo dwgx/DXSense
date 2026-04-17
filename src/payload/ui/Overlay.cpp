@@ -1,6 +1,8 @@
 #include "Overlay.hpp"
 
+#include "PythonPanel.hpp"
 #include "core/Logger.hpp"
+#include "scripting/PythonBridge.hpp"
 
 #include <imgui.h>
 
@@ -59,17 +61,31 @@ void Overlay::draw() {
 
         ImGui::Checkbox("ImGui demo window", &show_demo_);
         ImGui::SameLine();
+        ImGui::Checkbox("Python REPL", &show_python_);
+        ImGui::SameLine();
         ImGui::TextDisabled("(INSERT to toggle overlay)");
 
         ImGui::Spacing();
+        const bool py = PythonBridge::instance().ready();
+        ImGui::TextColored(py ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
+                              : ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                           "PythonBridge: %s", py ? "attached" : "not attached");
+
+        ImGui::Spacing();
         ImGui::TextWrapped(
-            "This is the injection foundation. Subsystems online: Logger, "
-            "HookManager (MinHook), DX11 backend (vtable-scanned Present/ResizeBuffers), "
-            "WndProc subclass, ImGui DX11 + Win32 backends.");
+            "Subsystems online: Logger, HookManager (MinHook), DX11 backend "
+            "(vtable-scanned Present/ResizeBuffers), WndProc subclass, ImGui "
+            "DX11 + Win32 backends, PythonBridge (dynamic GetProcAddress on "
+            "the host's re-exported CPython 3.x API).");
     }
     ImGui::End();
 
-    if (show_demo_) ImGui::ShowDemoWindow(&show_demo_);
+    if (show_demo_)   ImGui::ShowDemoWindow(&show_demo_);
+    if (show_python_) {
+        PythonPanel::instance().set_visible(true);
+        PythonPanel::instance().draw();
+        show_python_ = PythonPanel::instance().visible();
+    }
 }
 
 void Overlay::route_input(UINT msg, WPARAM w, LPARAM /*l*/) {

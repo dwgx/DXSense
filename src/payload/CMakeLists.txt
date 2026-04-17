@@ -5,7 +5,9 @@ add_library(dxsense SHARED
     hook/HookManager.cpp
     hook/WndProcHook.cpp
     render/Dx11Backend.cpp
+    scripting/PythonBridge.cpp
     ui/Overlay.cpp
+    ui/PythonPanel.cpp
 )
 
 set_target_properties(dxsense PROPERTIES

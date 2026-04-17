@@ -4,6 +4,7 @@
 #include "hook/HookManager.hpp"
 #include "hook/WndProcHook.hpp"
 #include "render/Dx11Backend.hpp"
+#include "scripting/PythonBridge.hpp"
 #include "ui/Overlay.hpp"
 
 #include <imgui.h>
@@ -48,6 +49,13 @@ void Engine::start(void* this_module) {
     }
     backend_ = std::move(dx11);
     DXS_INFO("Render backend installed: DX11");
+
+    // Optional: wire up the embedded-CPython bridge if the host DLL exports
+    // the Python C API (NeoX3 does; other targets won't, and we tolerate that).
+    if (HMODULE py_host = GetModuleHandleW(L"neox_engine.dll");
+        py_host && PythonBridge::instance().initialize(py_host)) {
+        DXS_INFO("PythonBridge attached to neox_engine.dll");
+    }
 }
 
 void Engine::attach_window(HWND hwnd) {

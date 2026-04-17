@@ -21,9 +21,10 @@ public:
 private:
     Overlay() = default;
 
-    bool visible_    = true;
-    bool show_demo_  = false;
-    int  frame_      = 0;
+    bool visible_      = true;
+    bool show_demo_    = false;
+    bool show_python_  = true;
+    int  frame_        = 0;
 };
 
 }  // namespace dxs
