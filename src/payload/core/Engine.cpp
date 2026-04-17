@@ -38,6 +38,7 @@ void Engine::start(void* this_module) {
     io.IniFilename  = nullptr;  // No imgui.ini clutter next to the game exe.
 
     Overlay::instance().configure_style();
+    Overlay::instance().register_default_panels();
 
     // Try DX11 first. Future backends (DX12 / Vulkan) slot in here via probing.
     auto dx11 = std::make_unique<Dx11Backend>();
