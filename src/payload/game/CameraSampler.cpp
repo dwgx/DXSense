@@ -1,5 +1,6 @@
 #include "CameraSampler.hpp"
 
+#include "core/EventLog.hpp"
 #include "core/Logger.hpp"
 #include "scripting/PythonBridge.hpp"
 
@@ -10,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <unordered_set>
 
 namespace dxs {
 
@@ -310,9 +312,101 @@ void CameraSampler::sample_now() {
         next.view_proj = prev.view_proj;
     }
 
-    std::scoped_lock lk(mtx_);
-    next.sample_count = latest_.sample_count + 1;
-    latest_ = std::move(next);
+    Snapshot prev;
+    {
+        std::scoped_lock lk(mtx_);
+        prev = latest_;
+        next.sample_count = prev.sample_count + 1;
+    }
+    diff_and_emit_events(prev, next);
+    {
+        std::scoped_lock lk(mtx_);
+        latest_ = std::move(next);
+    }
+}
+
+void CameraSampler::diff_and_emit_events(const Snapshot& prev, const Snapshot& next) {
+    auto& ev = EventLog::instance();
+    if (!ev.enabled()) return;
+
+    // Scene transitions: cam_ready toggles tell us we entered / left a 3D
+    // world. Player binding toggles tell us a match unit was just resolved.
+    if (prev.camera_ready != next.camera_ready) {
+        ev.emit(next.camera_ready ? "scene_enter" : "scene_exit");
+    }
+    if (prev.player_ready != next.player_ready) {
+        if (next.player_ready) {
+            char buf[128];
+            std::snprintf(buf, sizeof(buf),
+                          R"("uid":%llu,"pos":[%.2f,%.2f,%.2f])",
+                          static_cast<unsigned long long>(next.player_uid),
+                          next.player_pos.x, next.player_pos.y, next.player_pos.z);
+            ev.emit("match_start", buf);
+        } else {
+            ev.emit("match_end");
+        }
+    }
+
+    // Unit set diff. Spawn = uid in next but not prev; despawn = reverse.
+    std::unordered_set<std::uint64_t> prev_uids;
+    prev_uids.reserve(prev.units.size());
+    for (const auto& u : prev.units) prev_uids.insert(u.uid);
+
+    std::unordered_set<std::uint64_t> next_uids;
+    next_uids.reserve(next.units.size());
+    for (const auto& u : next.units) {
+        next_uids.insert(u.uid);
+        if (!prev_uids.count(u.uid)) {
+            char buf[160];
+            std::snprintf(buf, sizeof(buf),
+                          R"("uid":%llu,"kind":%d,"pos":[%.2f,%.2f,%.2f])",
+                          static_cast<unsigned long long>(u.uid), u.kind,
+                          u.pos.x, u.pos.y, u.pos.z);
+            ev.emit("unit_spawn", buf);
+        }
+    }
+    for (const auto& u : prev.units) {
+        if (!next_uids.count(u.uid)) {
+            char buf[80];
+            std::snprintf(buf, sizeof(buf),
+                          R"("uid":%llu,"kind":%d)",
+                          static_cast<unsigned long long>(u.uid), u.kind);
+            ev.emit("unit_despawn", buf);
+        }
+    }
+
+    // Heartbeats — low-rate positional sample of hunter + local player.
+    // Cheap enough to just do in C++ once per second; lets us reconstruct
+    // movement paths offline without flooding the log at 20 Hz.
+    if (next.sample_time >= next_heartbeat_at_) {
+        next_heartbeat_at_ = next.sample_time + heartbeat_interval_;
+        if (next.player_ready) {
+            char buf[160];
+            std::snprintf(buf, sizeof(buf),
+                          R"("uid":%llu,"pos":[%.2f,%.2f,%.2f])",
+                          static_cast<unsigned long long>(next.player_uid),
+                          next.player_pos.x, next.player_pos.y, next.player_pos.z);
+            ev.emit("player_tick", buf);
+        }
+        for (const auto& u : next.units) {
+            if (u.kind != 1) continue;   // hunter only — the one we actually care about
+            char buf[160];
+            std::snprintf(buf, sizeof(buf),
+                          R"("uid":%llu,"pos":[%.2f,%.2f,%.2f])",
+                          static_cast<unsigned long long>(u.uid),
+                          u.pos.x, u.pos.y, u.pos.z);
+            ev.emit("hunter_tick", buf);
+        }
+        if (next.camera_ready) {
+            char buf[200];
+            std::snprintf(buf, sizeof(buf),
+                          R"("pos":[%.2f,%.2f,%.2f],"fwd":[%.3f,%.3f,%.3f],"fov":%.1f)",
+                          next.cam_pos.x, next.cam_pos.y, next.cam_pos.z,
+                          next.cam_forward.x, next.cam_forward.y, next.cam_forward.z,
+                          next.fov_y);
+            ev.emit("camera_tick", buf);
+        }
+    }
 }
 
 namespace {

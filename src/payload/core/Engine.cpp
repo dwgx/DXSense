@@ -1,6 +1,7 @@
 #include "Engine.hpp"
 
 #include "Config.hpp"
+#include "EventLog.hpp"
 #include "Localization.hpp"
 #include "Logger.hpp"
 #include "RemoteBridge.hpp"
@@ -83,6 +84,13 @@ void Engine::start(void* this_module) {
         RemoteBridge::instance().start(port);
     }
 
+    // Structured event recorder — writes JSON lines next to the host exe.
+    // This is the primary offline-analysis surface; the .log file stays
+    // minimal (boot + failures only).
+    if (Config::instance().get_bool("events.enabled", true)) {
+        EventLog::instance().start();
+    }
+
     // Kick the boot splash — renders on the very next frame for ~1.4 s.
     splash::begin();
 }
@@ -107,6 +115,7 @@ void Engine::stop() {
     }
 
     RemoteBridge::instance().stop();
+    EventLog::instance().stop();
 
     if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
 

@@ -92,6 +92,8 @@ private:
     void sample_now();
     bool parse_output(const std::string& text, Snapshot& out) const;
 
+    void diff_and_emit_events(const Snapshot& prev, const Snapshot& next);
+
     mutable std::mutex                                    mtx_;
     Snapshot                                              latest_{};
     std::vector<std::pair<std::uint64_t, Vec3>>           request_;
@@ -99,6 +101,11 @@ private:
     bool                                                  enabled_ = true;
     double                                                next_tick_at_ = 0.0;
     double                                                interval_ = 1.0 / 20.0;
+
+    // Event emission throttle — heartbeat positions emit at ~1 Hz even
+    // though the sampler itself ticks at 20 Hz.
+    double                                                next_heartbeat_at_ = 0.0;
+    double                                                heartbeat_interval_ = 1.0;
 };
 
 }  // namespace dxs

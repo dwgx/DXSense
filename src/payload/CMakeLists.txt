@@ -2,6 +2,7 @@ add_library(dxsense SHARED
     DllMain.cpp
     core/Config.cpp
     core/Engine.cpp
+    core/EventLog.cpp
     core/Keybinds.cpp
     core/Localization.cpp
     core/Logger.cpp

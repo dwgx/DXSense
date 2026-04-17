@@ -72,16 +72,32 @@ bool PythonBridge::install_stdout_bridge() {
     // back via PyObject_GetAttrString.
     //
     // Writing into a list avoids contention with concurrent print() calls.
+    // Two stdout sinks: the main buffer receives anything our own exec()
+    // snippets print; the "noise" buffer soaks up the game's own `logging`
+    // module output so it stops polluting our REPL / panels. Detection is
+    // by prefix: Python's logging Formatter writes ISO timestamps at the
+    // start of every record, which user-level print() almost never does.
+    // Noise is queryable separately via sys._dxs_drain_noise for when we
+    // DO want to inspect what the engine is saying.
     static constexpr const char* k_boot = R"PY(
 import sys as _dxs_sys
+import re  as _dxs_re
+
+_DXS_LOG_PREFIX = _dxs_re.compile(r'^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}')
 
 class _DxsSink:
-    __slots__ = ("buf",)
+    __slots__ = ("buf", "noise", "pending")
     def __init__(self):
-        self.buf = []
+        self.buf     = []
+        self.noise   = []
+        self.pending = ""       # holds partial line across write() chunks
     def write(self, s):
-        if s:
-            self.buf.append(s)
+        if not s: return
+        data = self.pending + s
+        lines = data.split("\n")
+        self.pending = lines.pop()    # last element is either '' or the partial tail
+        for line in lines:
+            (self.noise if _DXS_LOG_PREFIX.match(line) else self.buf).append(line + "\n")
     def flush(self):
         pass
 
@@ -95,7 +111,13 @@ def _dxs_drain():
     e = ''.join(_dxs_sys._dxs_stderr.buf); _dxs_sys._dxs_stderr.buf.clear()
     return o + e
 
-_dxs_sys._dxs_drain = _dxs_drain
+def _dxs_drain_noise():
+    o = ''.join(_dxs_sys._dxs_stdout.noise); _dxs_sys._dxs_stdout.noise.clear()
+    e = ''.join(_dxs_sys._dxs_stderr.noise); _dxs_sys._dxs_stderr.noise.clear()
+    return o + e
+
+_dxs_sys._dxs_drain       = _dxs_drain
+_dxs_sys._dxs_drain_noise = _dxs_drain_noise
 )PY";
 
     GilLock gil(this);
