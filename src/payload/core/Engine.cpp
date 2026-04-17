@@ -1,11 +1,14 @@
 #include "Engine.hpp"
 
+#include "Config.hpp"
+#include "Localization.hpp"
 #include "Logger.hpp"
 #include "hook/HookManager.hpp"
 #include "hook/WndProcHook.hpp"
 #include "render/Dx11Backend.hpp"
 #include "scripting/PythonBridge.hpp"
 #include "ui/Overlay.hpp"
+#include "ui/framework/Fonts.hpp"
 
 #include <imgui.h>
 
@@ -23,6 +26,10 @@ void Engine::start(void* this_module) {
     Logger::instance().init(L"DXSense.log");
     DXS_INFO("DXSense starting (module=0x{:p})", module_);
 
+    // Config must load before anything else reads a value (Localization does).
+    Config::instance().load();
+    (void)Localization::instance();   // force ctor so persisted language takes effect
+
     if (!HookManager::instance().initialize()) {
         DXS_ERROR("HookManager init failed; aborting.");
         running_ = false;
@@ -36,6 +43,9 @@ void Engine::start(void* this_module) {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename  = nullptr;  // No imgui.ini clutter next to the game exe.
+
+    // Fonts must be loaded before Dx11Backend builds the font texture atlas.
+    fonts::load();
 
     Overlay::instance().configure_style();
     Overlay::instance().register_default_panels();
@@ -80,6 +90,7 @@ void Engine::stop() {
 
     if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
 
+    Config::instance().flush();
     HookManager::instance().shutdown();
     Logger::instance().shutdown();
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
 
 #include <array>
@@ -19,8 +20,8 @@ namespace dxs {
 class RpcTracerPanel : public IPanel {
 public:
     std::string_view id()       const override { return "rpc_tracer"; }
-    std::string_view category() const override { return "Analysis"; }
-    std::string_view title()    const override { return "RPC Tracer"; }
+    std::string_view category() const override { return L("sidebar.analysis"); }
+    std::string_view title()    const override { return L("panel.rpc_tracer.title"); }
     void             draw()           override;
 
     // Exposed for the hook thunk.

@@ -1,5 +1,6 @@
 #include "Overlay.hpp"
 
+#include "core/Config.hpp"
 #include "core/Logger.hpp"
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/Theme.hpp"
@@ -12,6 +13,7 @@
 #include "ui/panels/QuickActionsPanel.hpp"
 #include "ui/panels/RaycastPanel.hpp"
 #include "ui/panels/RpcTracerPanel.hpp"
+#include "ui/panels/SettingsPanel.hpp"
 
 #include <imgui.h>
 
@@ -41,10 +43,12 @@ void Overlay::register_default_panels() {
     gui.register_panel(std::make_unique<MemoryPanel>());
     gui.register_panel(std::make_unique<PythonReplPanel>());
     gui.register_panel(std::make_unique<QuickActionsPanel>());
+    gui.register_panel(std::make_unique<SettingsPanel>());
 }
 
 void Overlay::draw() {
     ++frame_;
+    Config::instance().save_if_dirty();   // debounced — safe to spam
     if (!visible_) return;
     ClickGui::instance().draw();
 }

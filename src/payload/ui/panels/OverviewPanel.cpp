@@ -1,5 +1,6 @@
 #include "OverviewPanel.hpp"
 
+#include "core/Localization.hpp"
 #include "scripting/PythonBridge.hpp"
 #include "ui/framework/Theme.hpp"
 
@@ -66,16 +67,16 @@ void OverviewPanel::draw() {
     char ms [32]; std::snprintf(ms,  sizeof(ms),  "%.2f ms", 1000.0f / io.Framerate);
     char frm[32]; std::snprintf(frm, sizeof(frm), "%d", ImGui::GetFrameCount());
 
-    tile("FRAMERATE",     fps, theme::accent);
-    ImGui::SameLine(); tile("FRAME TIME", ms,  theme::info);
-    ImGui::SameLine(); tile("FRAMES",     frm, theme::good);
+    tile(L("overview.framerate").data(),  fps, theme::accent);
+    ImGui::SameLine(); tile(L("overview.frame_time").data(), ms,  theme::info);
+    ImGui::SameLine(); tile(L("overview.frames").data(),     frm, theme::good);
 
     ImGui::Dummy(ImVec2(0, 12));
 
     // Subsystem statuses ------------------------------------------------------
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
     ImGui::SetWindowFontScale(0.86f);
-    ImGui::TextUnformatted("SUBSYSTEMS");
+    ImGui::TextUnformatted(L("overview.subsystems").data());
     ImGui::SetWindowFontScale(1.00f);
     ImGui::PopStyleColor();
     ImGui::Dummy(ImVec2(0, 4));
@@ -96,12 +97,7 @@ void OverviewPanel::draw() {
 
     ImGui::Dummy(ImVec2(0, 16));
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::TextWrapped(
-        "DXSense is a debug runtime, not a cheat. Panels on the left expose the "
-        "engine through live data: Python REPL runs inside the game's own "
-        "interpreter; Quick Actions are one-click introspection queries; the RPC "
-        "Tracer hooks the global logger to surface every network event; Memory "
-        "exposes the process address space for on-the-fly inspection.");
+    ImGui::TextWrapped("%s", L("overview.intro").data());
     ImGui::PopStyleColor();
 }
 

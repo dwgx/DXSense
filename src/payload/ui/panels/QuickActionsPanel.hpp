@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
 
 namespace dxs {
@@ -10,8 +11,8 @@ namespace dxs {
 class QuickActionsPanel : public IPanel {
 public:
     std::string_view id()       const override { return "quick_actions"; }
-    std::string_view category() const override { return "Scripting"; }
-    std::string_view title()    const override { return "Quick Actions"; }
+    std::string_view category() const override { return L("sidebar.scripting"); }
+    std::string_view title()    const override { return L("panel.quick_actions.title"); }
     void             draw()           override;
 };
 

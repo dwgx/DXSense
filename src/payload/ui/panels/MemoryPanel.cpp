@@ -1,5 +1,7 @@
 #include "MemoryPanel.hpp"
 
+#include "core/Config.hpp"
+#include "core/Localization.hpp"
 #include "ui/framework/Theme.hpp"
 
 #include <Windows.h>
@@ -12,38 +14,48 @@ namespace dxs {
 
 void MemoryPanel::ensure_base_set() {
     if (base_addr_ == 0) {
-        // First-time default: the neox_engine.dll image base is a useful
-        // landing pad — most RE work starts from one of its offsets.
-        if (HMODULE h = GetModuleHandleW(L"neox_engine.dll")) {
-            base_addr_ = reinterpret_cast<uint64_t>(h);
-            std::snprintf(input_, sizeof(input_), "0x%llX",
-                          static_cast<unsigned long long>(base_addr_));
-        } else {
-            base_addr_ = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));
+        // Restore from config first — the user's last-inspected address is
+        // usually where they want to come back to.
+        const auto saved = Config::instance().get("memory.address");
+        if (!saved.empty()) {
+            std::strncpy(input_, saved.c_str(), sizeof(input_) - 1);
+            try_parse_address();
+        }
+        if (base_addr_ == 0) {
+            // First-time default: neox_engine.dll image base.
+            if (HMODULE h = GetModuleHandleW(L"neox_engine.dll"))
+                base_addr_ = reinterpret_cast<uint64_t>(h);
+            else
+                base_addr_ = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));
             std::snprintf(input_, sizeof(input_), "0x%llX",
                           static_cast<unsigned long long>(base_addr_));
         }
+        size_bytes_ = Config::instance().get_int("memory.size", 512);
     }
 }
 
 void MemoryPanel::try_parse_address() {
     last_error_.clear();
-    // Accept "0x..." or decimal or plain hex without prefix.
     const char* s = input_;
     while (*s && std::isspace(static_cast<unsigned char>(*s))) ++s;
-    int base = 0;  // strtoull with base 0 auto-detects.
     char*      end = nullptr;
-    const auto v   = std::strtoull(s, &end, base);
+    const auto v   = std::strtoull(s, &end, 0);
     if (end == s) { last_error_ = "not a valid integer"; return; }
     base_addr_ = v;
+    Config::instance().set("memory.address", input_);
 }
 
 void MemoryPanel::draw() {
     ensure_base_set();
 
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
+    ImGui::TextWrapped("%s", L("memory.intro").data());
+    ImGui::PopStyleColor();
+    ImGui::Dummy(ImVec2(0, 8));
+
     // Control row -------------------------------------------------------------
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::TextUnformatted("ADDRESS");
+    ImGui::TextUnformatted(L("common.address").data());
     ImGui::PopStyleColor();
 
     ImGui::PushItemWidth(240);
@@ -58,7 +70,9 @@ void MemoryPanel::draw() {
 
     ImGui::SameLine();
     ImGui::PushItemWidth(120);
-    ImGui::SliderInt("##len", &size_bytes_, 64, 4096, "len=%d");
+    if (ImGui::SliderInt("##len", &size_bytes_, 64, 4096, "len=%d")) {
+        Config::instance().set_int("memory.size", size_bytes_);
+    }
     ImGui::PopItemWidth();
 
     ImGui::SameLine();

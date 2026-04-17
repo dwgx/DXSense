@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
 
 #include <cstdint>
@@ -12,8 +13,8 @@ namespace dxs {
 class MemoryPanel : public IPanel {
 public:
     std::string_view id()       const override { return "memory"; }
-    std::string_view category() const override { return "Analysis"; }
-    std::string_view title()    const override { return "Memory"; }
+    std::string_view category() const override { return L("sidebar.analysis"); }
+    std::string_view title()    const override { return L("panel.memory.title"); }
     void             draw()           override;
 
 private:

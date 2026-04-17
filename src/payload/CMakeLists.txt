@@ -1,13 +1,16 @@
 add_library(dxsense SHARED
     DllMain.cpp
-    core/Logger.cpp
+    core/Config.cpp
     core/Engine.cpp
+    core/Localization.cpp
+    core/Logger.cpp
     hook/HookManager.cpp
     hook/WndProcHook.cpp
     render/Dx11Backend.cpp
     scripting/PythonBridge.cpp
     ui/Overlay.cpp
     ui/framework/ClickGui.cpp
+    ui/framework/Fonts.cpp
     ui/framework/Theme.cpp
     ui/panels/EntitiesPanel.cpp
     ui/panels/HooksPanel.cpp
@@ -18,6 +21,7 @@ add_library(dxsense SHARED
     ui/panels/QuickActionsPanel.cpp
     ui/panels/RaycastPanel.cpp
     ui/panels/RpcTracerPanel.cpp
+    ui/panels/SettingsPanel.cpp
 )
 
 set_target_properties(dxsense PROPERTIES
@@ -45,4 +49,6 @@ target_link_libraries(dxsense PRIVATE
     dxgi
     d3dcompiler
     dwmapi
+    shell32   # SHGetKnownFolderPath
+    ole32     # CoTaskMemFree
 )

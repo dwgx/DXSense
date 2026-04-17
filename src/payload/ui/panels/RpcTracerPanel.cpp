@@ -1,5 +1,7 @@
 #include "RpcTracerPanel.hpp"
 
+#include "core/Config.hpp"
+#include "core/Localization.hpp"
 #include "core/Logger.hpp"
 #include "hook/HookManager.hpp"
 #include "ui/framework/ClickGui.hpp"
@@ -92,12 +94,17 @@ void RpcTracerPanel::disable() {
 }
 
 void RpcTracerPanel::draw() {
+    // One-time: restore persisted state on first draw.
+    static bool loaded = false;
+    if (!loaded) {
+        loaded       = true;
+        autoscroll_  = Config::instance().get_bool("rpc_tracer.autoscroll", true);
+        auto f       = Config::instance().get("rpc_tracer.filter");
+        std::strncpy(filter_, f.c_str(), sizeof(filter_) - 1);
+    }
+
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
-    ImGui::TextWrapped(
-        "Hooks the engine's global logger (neox_engine.dll +0x30DB100). Every "
-        "async:: RPC stub funnels its fully-qualified name through this call, "
-        "so enabling the hook gives you a live feed of everything the network "
-        "layer is about to do — no packet capture needed.");
+    ImGui::TextWrapped("%s", L("rpc_tracer.intro").data());
     ImGui::PopStyleColor();
 
     ImGui::Dummy(ImVec2(0, 8));
@@ -106,25 +113,30 @@ void RpcTracerPanel::draw() {
     bool on = hook_installed_.load();
     ImGui::PushStyleColor(ImGuiCol_Text,
                           on ? theme::good : theme::text_muted);
-    ImGui::TextUnformatted(on ? "● hook armed" : "○ hook idle");
+    ImGui::TextUnformatted(on ? L("rpc_tracer.hook_armed").data()
+                              : L("rpc_tracer.hook_idle").data());
     ImGui::PopStyleColor();
     ImGui::SameLine();
     if (!on) {
-        if (ImGui::Button("Arm hook")) enable();
+        if (ImGui::Button(L("common.arm_hook").data())) enable();
     } else {
-        if (ImGui::Button("Pause")) disable();
+        if (ImGui::Button(L("common.pause").data())) disable();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Clear")) {
+    if (ImGui::Button(L("common.clear").data())) {
         std::scoped_lock lk(mtx_);
         head_ = 0; count_ = 0;
     }
     ImGui::SameLine();
-    ImGui::Checkbox("Autoscroll", &autoscroll_);
+    if (ImGui::Checkbox(L("common.autoscroll").data(), &autoscroll_)) {
+        Config::instance().set_bool("rpc_tracer.autoscroll", autoscroll_);
+    }
     ImGui::SameLine(0, 20);
     ImGui::PushItemWidth(240);
-    ImGui::InputTextWithHint("##filter", "filter by tag substring",
-                             filter_, sizeof(filter_));
+    if (ImGui::InputTextWithHint("##filter", L("common.filter").data(),
+                                 filter_, sizeof(filter_))) {
+        Config::instance().set("rpc_tracer.filter", filter_);
+    }
     ImGui::PopItemWidth();
 
     ImGui::Dummy(ImVec2(0, 6));
