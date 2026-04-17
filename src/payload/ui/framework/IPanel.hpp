@@ -24,6 +24,10 @@ public:
     // One-line label shown in the sidebar and as the content-area header.
     virtual std::string_view title() const = 0;
 
+    // Optional Fluent-icon glyph (UTF-8) shown to the left of the title in
+    // the sidebar. Return empty string to skip. See ui/framework/Icons.hpp.
+    virtual std::string_view icon()  const { return {}; }
+
     // Called once when the panel is first selected (for deferred setup like
     // buffer allocation). Default no-op.
     virtual void on_first_show() {}

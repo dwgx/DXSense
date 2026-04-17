@@ -1,5 +1,6 @@
 #include "Fonts.hpp"
 
+#include "Icons.hpp"
 #include "core/Logger.hpp"
 
 #include <Windows.h>
@@ -90,6 +91,26 @@ void load() {
             io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
     } else {
         DXS_WARN("Fonts: msyh.ttc missing; CJK glyphs will render as ?");
+    }
+
+    // ---- Windows 11 Fluent icons (merged) -----------------------------------
+    // SegoeIcons.ttf ships with every Win10+ install and matches the
+    // modern-Windows / Claude-site aesthetic (clean monoweight line icons).
+    const auto fluent = windir_font(L"SegoeIcons.ttf");
+    if (std::filesystem::exists(fluent)) {
+        ImFontConfig cfg_icon = cfg_base;
+        cfg_icon.MergeMode       = true;
+        cfg_icon.GlyphMinAdvanceX = 15.0f;        // keep icons a uniform width
+        cfg_icon.GlyphOffset     = ImVec2(0, 1);  // nudge down 1 px for baseline alignment
+        cfg_icon.OversampleH     = 2;
+        cfg_icon.OversampleV     = 1;
+        io.Fonts->AddFontFromFileTTF(
+            fluent.string().c_str(),
+            15.0f,
+            &cfg_icon,
+            dxs::icons::range());
+    } else {
+        DXS_WARN("Fonts: SegoeIcons.ttf missing; icons will render as ?");
     }
 
     io.Fonts->Build();

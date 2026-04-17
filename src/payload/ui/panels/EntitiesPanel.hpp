@@ -2,8 +2,10 @@
 
 #include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
+#include "ui/framework/Icons.hpp"
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace dxs {
@@ -17,7 +19,9 @@ public:
     std::string_view id()       const override { return "entities"; }
     std::string_view category() const override { return L("sidebar.analysis"); }
     std::string_view title()    const override { return L("panel.entities.title"); }
+    std::string_view icon()     const override { return ICON_PEOPLE; }
     void             draw()           override;
+    void             on_first_show() override;
 
 private:
     struct Row {
@@ -29,12 +33,16 @@ private:
 
     void kick_refresh();
     void absorb_output();
+    bool category_enabled(std::string_view kind) const;
 
-    std::vector<Row> rows_;
-    double           last_kick_at_  = 0.0;
-    bool             awaiting_      = false;
-    char             filter_[128]   {};
-    std::string      raw_buffer_;
+    std::vector<Row>               rows_;
+    double                         last_kick_at_    = 0.0;
+    double                         last_auto_refresh_ = 0.0;
+    bool                           awaiting_        = false;
+    bool                           auto_refresh_    = true;
+    char                           filter_[128]    {};
+    std::string                    raw_buffer_;
+    std::unordered_set<std::string> cat_hide_;   // categories toggled OFF
 };
 
 }  // namespace dxs

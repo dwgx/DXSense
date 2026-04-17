@@ -13,41 +13,74 @@ namespace dxs {
 
 namespace {
 
-// Best-effort matrix probe. Tries three historically common NeoX3 accessor
-// paths before giving up — none of them are guaranteed to exist on this
-// specific game build, but as a dev tool running in your own game, you can
-// swap these for whatever your engine actually exposes.
+// NeoX3 on dwrg exposes its camera system under `core.camera`. A Python REPL
+// dump earlier revealed ~20 CamMode subclasses + a `CameraCtrl` controller
+// and a `PhantomCamMgr` manager — we try the controller + manager first,
+// then fall back to any BigWorld-style global or a generic gc scan.
 constexpr const char* k_probe = R"PY(
-def _dxs_mat_print(name, m):
+def _dxs_flat(m):
     try:
-        flat = [float(v) for row in m for v in row]
-    except Exception:
-        try: flat = [float(v) for v in m]
-        except Exception: return
-    if len(flat) != 16: return
-    print(f"DXS_MAT {name} " + " ".join(f"{v:.6f}" for v in flat))
+        if hasattr(m, '__len__') and len(m) == 16:
+            return [float(v) for v in m]
+        if hasattr(m, '__len__') and len(m) == 4:
+            out = []
+            for r in m:
+                if hasattr(r, '__len__') and len(r) == 4:
+                    out.extend(float(v) for v in r)
+            if len(out) == 16: return out
+        if hasattr(m, 'toList'):
+            v = m.toList()
+            return [float(x) for x in v][:16]
+    except Exception: pass
+    return None
+
+def _dxs_mat_print(name, m):
+    f = _dxs_flat(m)
+    if not f: return False
+    print("DXS_MAT", name, " ".join(f"{v:.6f}" for v in f))
+    return True
 
 def _dxs_probe():
+    # core.camera.CameraCtrl — the controller singleton in NeoX3.
     try:
-        import BigWorld as bw
-        cam = bw.camera()
-        _dxs_mat_print("view", cam.view)
-        _dxs_mat_print("proj", cam.projection)
-        return True
-    except Exception: pass
+        import core.camera as cc
+        ctrl = cc.CameraCtrl
+        if hasattr(ctrl, 'instance'): ctrl = ctrl.instance()
+        v = None; p = None
+        for vname in ('view', 'view_matrix', 'getViewMatrix', 'get_view'):
+            if hasattr(ctrl, vname):
+                a = getattr(ctrl, vname); v = a() if callable(a) else a; break
+        for pname in ('projection', 'proj', 'projection_matrix', 'getProjection'):
+            if hasattr(ctrl, pname):
+                a = getattr(ctrl, pname); p = a() if callable(a) else a; break
+        ok = False
+        if v is not None and _dxs_mat_print("view", v): ok = True
+        if p is not None and _dxs_mat_print("proj", p): ok = True
+        if ok: return True
+    except Exception as e: print("probe core.camera:", e)
+
+    # PhantomCamMgr — the active camera manager (often holds the current cam).
     try:
-        import neox.camera as nc
-        c = nc.get_active()
-        _dxs_mat_print("view", c.view_matrix())
-        _dxs_mat_print("proj", c.projection_matrix())
-        return True
-    except Exception: pass
+        from common_cs.mgr import PhantomCamMgr as pcm
+        m = pcm.get_instance() if hasattr(pcm, 'get_instance') else pcm()
+        cam = m.GetCurrentCamera() if hasattr(m, 'GetCurrentCamera') else None
+        if cam is not None:
+            if _dxs_mat_print("view", getattr(cam, 'view', cam.GetViewMatrix())):
+                if hasattr(cam, 'projection'):
+                    _dxs_mat_print("proj", cam.projection)
+                return True
+    except Exception as e: print("probe PhantomCamMgr:", e)
+
+    # Generic scan — any global object that looks like a camera.
     try:
-        from engine import camera
-        c = camera.current()
-        _dxs_mat_print("view", c.view)
-        _dxs_mat_print("proj", c.proj)
-        return True
+        import gc
+        for o in gc.get_objects():
+            if type(o).__name__ in ('Camera', 'GameCamera', 'CameraActor'):
+                v = getattr(o, 'view', None)
+                p = getattr(o, 'projection', None) or getattr(o, 'proj', None)
+                if v is not None and _dxs_mat_print("view", v):
+                    if p is not None: _dxs_mat_print("proj", p)
+                    return True
     except Exception: pass
     return False
 
@@ -130,11 +163,7 @@ void MatrixPanel::draw() {
     }
 
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
-    ImGui::TextWrapped(
-        "View / projection matrix inspector. Probes a handful of common NeoX3 "
-        "accessors through the in-process Python bridge. When the subsystem "
-        "survey lands, the DX11 VS-constant-buffer snoop will be the primary "
-        "source; Python is the fallback / validation path.");
+    ImGui::TextWrapped("%s", L("matrix.intro").data());
     ImGui::PopStyleColor();
 
     ImGui::Dummy(ImVec2(0, 8));
@@ -158,11 +187,7 @@ void MatrixPanel::draw() {
 
     if (!have_view_ && !have_proj_) {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::warn);
-        ImGui::TextWrapped(
-            "No matrix source found yet. The probe tried BigWorld.camera(), "
-            "neox.camera.get_active(), and engine.camera.current() — none "
-            "exist on this build. The subsystem survey (Codex task in flight) "
-            "will give us the C++ camera singleton address for a direct read.");
+        ImGui::TextWrapped("%s", L("matrix.no_source").data());
         ImGui::PopStyleColor();
     }
 }

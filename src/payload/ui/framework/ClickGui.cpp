@@ -122,30 +122,51 @@ void ClickGui::draw_sidebar() {
 
     for (const auto& cat : group_order) {
         if (!cat.empty()) {
-            ImGui::Spacing();
+            ImGui::Dummy(ImVec2(0, 4));
             ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-            ImGui::SetWindowFontScale(0.85f);
+            ImGui::SetWindowFontScale(0.82f);
+            ImGui::Indent(4.0f);
             ImGui::TextUnformatted(cat.c_str());
+            ImGui::Unindent(4.0f);
             ImGui::SetWindowFontScale(1.00f);
             ImGui::PopStyleColor();
-            ImGui::Spacing();
+            ImGui::Dummy(ImVec2(0, 2));
         }
 
         for (IPanel* p : groups[cat]) {
             const bool active = (selected_id_ == p->id());
+            ImGui::PushID(p->id().data());
+
+            // Pixel-aligned row: full-width selectable as background, then
+            // we draw the icon + label manually so they line up across panels
+            // regardless of icon width. Indent by a fixed amount instead of
+            // prefixing spaces (the earlier approach drifted with font).
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 6));
             ImGui::PushStyleColor(ImGuiCol_Text,
                                   active ? theme::accent : theme::text_primary);
-
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 6));
-            if (ImGui::Selectable(
-                    std::string("  " + std::string(p->title())).c_str(),
-                    active,
-                    ImGuiSelectableFlags_AllowDoubleClick,
-                    ImVec2(theme::sidebar_w - 24, 0))) {
+            const ImVec2 cursor = ImGui::GetCursorScreenPos();
+            const float  row_w  = ImGui::GetContentRegionAvail().x;
+            if (ImGui::Selectable("##row", active,
+                                  ImGuiSelectableFlags_AllowDoubleClick,
+                                  ImVec2(row_w, theme::row_h))) {
                 select(p->id());
             }
-            ImGui::PopStyleVar();
+
+            // Overlay icon (24 px column) + title.
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float  text_y = cursor.y + (theme::row_h - ImGui::GetTextLineHeight()) * 0.5f;
+            const auto   col    = theme::to_u32(active ? theme::accent : theme::text_primary);
+            std::string_view ic = p->icon();
+            if (!ic.empty())
+                dl->AddText(ImVec2(cursor.x + 10, text_y),  col,
+                            ic.data(), ic.data() + ic.size());
+            dl->AddText(ImVec2(cursor.x + 34, text_y), col,
+                        p->title().data(),
+                        p->title().data() + p->title().size());
+
             ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            ImGui::PopID();
         }
     }
 

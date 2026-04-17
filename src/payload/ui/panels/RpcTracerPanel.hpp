@@ -2,6 +2,7 @@
 
 #include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
+#include "ui/framework/Icons.hpp"
 
 #include <array>
 #include <atomic>
@@ -22,6 +23,7 @@ public:
     std::string_view id()       const override { return "rpc_tracer"; }
     std::string_view category() const override { return L("sidebar.analysis"); }
     std::string_view title()    const override { return L("panel.rpc_tracer.title"); }
+    std::string_view icon()     const override { return ICON_GLOBE; }
     void             draw()           override;
 
     // Exposed for the hook thunk.
