@@ -7,7 +7,17 @@ add_library(dxsense SHARED
     render/Dx11Backend.cpp
     scripting/PythonBridge.cpp
     ui/Overlay.cpp
-    ui/PythonPanel.cpp
+    ui/framework/ClickGui.cpp
+    ui/framework/Theme.cpp
+    ui/panels/EntitiesPanel.cpp
+    ui/panels/HooksPanel.cpp
+    ui/panels/MatrixPanel.cpp
+    ui/panels/MemoryPanel.cpp
+    ui/panels/OverviewPanel.cpp
+    ui/panels/PythonReplPanel.cpp
+    ui/panels/QuickActionsPanel.cpp
+    ui/panels/RaycastPanel.cpp
+    ui/panels/RpcTracerPanel.cpp
 )
 
 set_target_properties(dxsense PROPERTIES

@@ -1,15 +1,24 @@
 #include "Overlay.hpp"
 
-#include "PythonPanel.hpp"
 #include "core/Logger.hpp"
-#include "scripting/PythonBridge.hpp"
+#include "ui/framework/ClickGui.hpp"
+#include "ui/framework/Theme.hpp"
+#include "ui/panels/EntitiesPanel.hpp"
+#include "ui/panels/HooksPanel.hpp"
+#include "ui/panels/MatrixPanel.hpp"
+#include "ui/panels/MemoryPanel.hpp"
+#include "ui/panels/OverviewPanel.hpp"
+#include "ui/panels/PythonReplPanel.hpp"
+#include "ui/panels/QuickActionsPanel.hpp"
+#include "ui/panels/RaycastPanel.hpp"
+#include "ui/panels/RpcTracerPanel.hpp"
 
 #include <imgui.h>
 
 namespace dxs {
 
 namespace {
-constexpr int kToggleKey = VK_INSERT;  // Cheap default; Overlay owns policy, not WndProcHook.
+constexpr int kToggleKey = VK_INSERT;
 }
 
 Overlay& Overlay::instance() {
@@ -18,79 +27,32 @@ Overlay& Overlay::instance() {
 }
 
 void Overlay::configure_style() {
-    ImGuiStyle& s = ImGui::GetStyle();
-    s.WindowRounding    = 6.0f;
-    s.FrameRounding     = 4.0f;
-    s.GrabRounding      = 4.0f;
-    s.ScrollbarRounding = 4.0f;
-    s.WindowBorderSize  = 0.0f;
-    s.FrameBorderSize   = 0.0f;
-    s.WindowPadding     = ImVec2(10, 8);
-    s.FramePadding      = ImVec2(8,  4);
-    s.ItemSpacing       = ImVec2(8,  6);
+    theme::apply();
+}
 
-    ImVec4* c = s.Colors;
-    c[ImGuiCol_WindowBg]        = ImVec4(0.07f, 0.08f, 0.10f, 0.92f);
-    c[ImGuiCol_TitleBg]         = ImVec4(0.10f, 0.12f, 0.15f, 1.00f);
-    c[ImGuiCol_TitleBgActive]   = ImVec4(0.14f, 0.18f, 0.24f, 1.00f);
-    c[ImGuiCol_FrameBg]         = ImVec4(0.12f, 0.14f, 0.17f, 1.00f);
-    c[ImGuiCol_FrameBgHovered]  = ImVec4(0.18f, 0.22f, 0.28f, 1.00f);
-    c[ImGuiCol_Button]          = ImVec4(0.18f, 0.40f, 0.70f, 1.00f);
-    c[ImGuiCol_ButtonHovered]   = ImVec4(0.26f, 0.55f, 0.90f, 1.00f);
-    c[ImGuiCol_ButtonActive]    = ImVec4(0.15f, 0.30f, 0.55f, 1.00f);
-    c[ImGuiCol_CheckMark]       = ImVec4(0.40f, 0.75f, 1.00f, 1.00f);
-    c[ImGuiCol_Text]            = ImVec4(0.92f, 0.94f, 0.98f, 1.00f);
-    c[ImGuiCol_TextDisabled]    = ImVec4(0.50f, 0.55f, 0.60f, 1.00f);
-    c[ImGuiCol_Border]          = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    c[ImGuiCol_Separator]       = ImVec4(0.20f, 0.24f, 0.30f, 1.00f);
+void Overlay::register_default_panels() {
+    auto& gui = ClickGui::instance();
+    gui.register_panel(std::make_unique<OverviewPanel>());
+    gui.register_panel(std::make_unique<HooksPanel>());
+    gui.register_panel(std::make_unique<EntitiesPanel>());
+    gui.register_panel(std::make_unique<MatrixPanel>());
+    gui.register_panel(std::make_unique<RaycastPanel>());
+    gui.register_panel(std::make_unique<RpcTracerPanel>());
+    gui.register_panel(std::make_unique<MemoryPanel>());
+    gui.register_panel(std::make_unique<PythonReplPanel>());
+    gui.register_panel(std::make_unique<QuickActionsPanel>());
 }
 
 void Overlay::draw() {
     ++frame_;
     if (!visible_) return;
-
-    ImGui::SetNextWindowSize(ImVec2(420, 260), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("DXSense / Debug Runtime", nullptr,
-                     ImGuiWindowFlags_NoCollapse)) {
-        ImGui::TextDisabled("dwrg / NeoX3 overlay — foundation build");
-        ImGui::Separator();
-
-        ImGui::Text("frame: %d", frame_);
-        ImGui::Text("io.Framerate: %.1f fps", ImGui::GetIO().Framerate);
-        ImGui::Spacing();
-
-        ImGui::Checkbox("ImGui demo window", &show_demo_);
-        ImGui::SameLine();
-        ImGui::Checkbox("Python REPL", &show_python_);
-        ImGui::SameLine();
-        ImGui::TextDisabled("(INSERT to toggle overlay)");
-
-        ImGui::Spacing();
-        const bool py = PythonBridge::instance().ready();
-        ImGui::TextColored(py ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
-                              : ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                           "PythonBridge: %s", py ? "attached" : "not attached");
-
-        ImGui::Spacing();
-        ImGui::TextWrapped(
-            "Subsystems online: Logger, HookManager (MinHook), DX11 backend "
-            "(vtable-scanned Present/ResizeBuffers), WndProc subclass, ImGui "
-            "DX11 + Win32 backends, PythonBridge (dynamic GetProcAddress on "
-            "the host's re-exported CPython 3.x API).");
-    }
-    ImGui::End();
-
-    if (show_demo_)   ImGui::ShowDemoWindow(&show_demo_);
-    if (show_python_) {
-        PythonPanel::instance().set_visible(true);
-        PythonPanel::instance().draw();
-        show_python_ = PythonPanel::instance().visible();
-    }
+    ClickGui::instance().draw();
 }
 
 void Overlay::route_input(UINT msg, WPARAM w, LPARAM /*l*/) {
     if (msg == WM_KEYDOWN && static_cast<int>(w) == kToggleKey) {
         visible_ = !visible_;
+        ClickGui::instance().set_visible(visible_);
         DXS_INFO("overlay visibility: {}", visible_);
     }
 }

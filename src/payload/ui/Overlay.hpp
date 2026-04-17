@@ -4,15 +4,16 @@
 
 namespace dxs {
 
-// Top-level ImGui driver. Kept intentionally thin — panels live in their own
-// files (add later). For the foundation we ship a small self-identifying
-// window so the user has visible proof the DLL is injected and rendering.
+// Top-level ImGui driver. Delegates all drawing to the ClickGui framework and
+// owns only the overlay-visibility policy + input toggle. All concrete UI
+// lives in ui/panels/*.
 class Overlay {
 public:
     static Overlay& instance();
 
-    void configure_style();
-    void draw();
+    void configure_style();                        // push Theme into ImGui once.
+    void register_default_panels();                // called by Engine::start.
+    void draw();                                   // per-frame entry point.
     void route_input(UINT msg, WPARAM w, LPARAM l);
 
     bool visible() const noexcept { return visible_; }
@@ -21,10 +22,8 @@ public:
 private:
     Overlay() = default;
 
-    bool visible_      = true;
-    bool show_demo_    = false;
-    bool show_python_  = true;
-    int  frame_        = 0;
+    bool visible_ = true;
+    int  frame_   = 0;
 };
 
 }  // namespace dxs
