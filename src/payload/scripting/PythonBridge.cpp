@@ -142,4 +142,18 @@ std::string PythonBridge::drain_output() {
     return out;
 }
 
+std::string PythonBridge::exec_and_collect(std::string_view source) {
+    if (!ready_) return "bridge not ready";
+    std::scoped_lock exec_guard(exec_mtx_);
+    // Flush anything the REPL has queued so the caller's output is clean.
+    { std::scoped_lock lk(buf_mtx_); buffer_.clear(); }
+    exec(source);
+    std::string out;
+    {
+        std::scoped_lock lk(buf_mtx_);
+        out.swap(buffer_);
+    }
+    return out;
+}
+
 }  // namespace dxs

@@ -3,6 +3,7 @@
 #include "Config.hpp"
 #include "Localization.hpp"
 #include "Logger.hpp"
+#include "RemoteBridge.hpp"
 #include "game/GameMemory.hpp"
 #include "hook/HookManager.hpp"
 #include "hook/WndProcHook.hpp"
@@ -75,6 +76,13 @@ void Engine::start(void* this_module) {
     // when the module is absent — subsequent GameMemory::ready() reads false.
     GameMemory::instance().initialize();
 
+    // Remote Python debug bridge — lets an outside tool POST Python to
+    // localhost:9099 and get the captured output back. Loopback-only.
+    if (Config::instance().get_bool("remote.enabled", true)) {
+        const int port = Config::instance().get_int("remote.port", 9099);
+        RemoteBridge::instance().start(port);
+    }
+
     // Kick the boot splash — renders on the very next frame for ~1.4 s.
     splash::begin();
 }
@@ -97,6 +105,8 @@ void Engine::stop() {
         backend_->uninstall();
         backend_.reset();
     }
+
+    RemoteBridge::instance().stop();
 
     if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
 

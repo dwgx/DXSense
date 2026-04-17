@@ -38,6 +38,11 @@ public:
     // drain_output(). Thread-safe against the engine's Python threads.
     void exec(std::string_view source);
 
+    // exec + immediately grab everything written during THIS call and return
+    // it as a single string. Mutex-held across exec + drain so the remote
+    // bridge can't interleave with the REPL panel.
+    std::string exec_and_collect(std::string_view source);
+
     // Copy + clear the captured output. Returns an empty string when nothing
     // new has been produced since the last drain.
     std::string drain_output();
@@ -82,6 +87,8 @@ private:
     bool              ready_    = false;
     std::mutex        buf_mtx_;
     std::string       buffer_;     // captured prints / tracebacks
+    std::mutex        exec_mtx_;   // serialises exec_and_collect so remote
+                                    // and REPL don't tear each other's output.
 };
 
 }  // namespace dxs

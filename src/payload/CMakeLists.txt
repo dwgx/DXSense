@@ -5,6 +5,7 @@ add_library(dxsense SHARED
     core/Keybinds.cpp
     core/Localization.cpp
     core/Logger.cpp
+    core/RemoteBridge.cpp
     game/GameMemory.cpp
     hook/HookManager.cpp
     hook/WndProcHook.cpp
@@ -69,4 +70,5 @@ target_link_libraries(dxsense PRIVATE
     shell32   # SHGetKnownFolderPath
     ole32     # CoTaskMemFree
     psapi     # GetModuleInformation
+    ws2_32    # RemoteBridge (WSAStartup / socket / bind / listen / accept)
 )
