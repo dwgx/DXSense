@@ -8,32 +8,47 @@
 #include <algorithm>
 #include <cstring>
 #include <imgui.h>
+#include <map>
 #include <string>
 #include <vector>
 
 // ═════════════════════════════════════════════════════════════════════════
-//  Command Palette — Ctrl+K search surface.
+//  Command Palette — Ctrl+K search surface, matching the v3 HTML design.
 //
-//  Centered modal over a dim scrim. An input field at the top filters
-//  the panel list by substring match against title + category. Up/Down
-//  moves the focus; Enter selects; Escape dismisses.
+//  Layout (top → bottom):
 //
-//  State is file-local: this is a singleton overlay that never needs to
-//  carry per-caller identity. Ctrl+K toggles whether we're open; any
-//  other key routes to ImGui as normal while open.
+//        ┌──────┐
+//        │  🔍  │    56 px rounded icon square
+//        └──────┘
+//       Command Palette      ← 20 px light subtitle
+//     ┌────────────────────┐
+//     │ 🔍  Where do you…  │ ← 18 px input field, glass tint
+//     └────────────────────┘
+//                             ~~~ underline pulses when query non-empty
+//     [no query]
+//        ┌─ quick access grid, 4-5 tiles per row,
+//        │   icon + title centred in each
+//        └─…
+//     [query]
+//        CATEGORY
+//        ◦ Title                    ↵
+//        ◦ Title
+//     ─────────────────
+//     ↑↓ navigate · ↵ open · esc close
+//
+//  The whole thing sits in the middle of the viewport, max 640 wide,
+//  against a dark blurred scrim. Closing taps: click scrim, press Esc.
 // ═════════════════════════════════════════════════════════════════════════
 
 namespace dxs {
 
 namespace {
 
-bool  g_open      = false;
-bool  g_just_opened = false;          // request focus on next draw
+bool  g_open        = false;
+bool  g_just_opened = false;
 char  g_query[128]  = {};
-int   g_focus_idx   = 0;
+int   g_focus       = 0;
 
-// Channel-driven fade so the palette opens/closes with the same motion
-// language as the rest of the shell (ClickGui, HUD, reset reveal).
 anim::Channel g_fade;
 
 struct Entry {
@@ -82,6 +97,83 @@ std::vector<Entry> filter(const std::vector<Entry>& src, std::string_view q) {
     return out;
 }
 
+// Group by category preserving first-seen order (std::map sorts; we want
+// the order panels were registered). Use a vector of (cat, indices).
+struct Group {
+    std::string        category;
+    std::vector<int>   indices;     // into the filtered list
+};
+std::vector<Group> group_by_category(const std::vector<Entry>& list) {
+    std::vector<Group> out;
+    for (int i = 0; i < static_cast<int>(list.size()); ++i) {
+        const auto& cat = list[i].category;
+        auto it = std::find_if(out.begin(), out.end(),
+            [&](const Group& g) { return g.category == cat; });
+        if (it == out.end()) {
+            Group g; g.category = cat; g.indices.push_back(i);
+            out.push_back(std::move(g));
+        } else {
+            it->indices.push_back(i);
+        }
+    }
+    return out;
+}
+
+// ─── pieces ──────────────────────────────────────────────────────────────
+
+void draw_magnifier(ImDrawList* dl, ImVec2 c, float r, ImU32 col,
+                    float thickness = 1.6f) {
+    dl->AddCircle(c, r, col, 20, thickness);
+    const float t = r * 0.707f;
+    dl->AddLine(c + ImVec2(t, t),
+                c + ImVec2(t + r * 0.7f, t + r * 0.7f),
+                col, thickness);
+}
+
+void draw_kbd(ImDrawList* dl, ImVec2 tl, const char* glyph, ImU32 col) {
+    const ImVec2 sz = ImGui::CalcTextSize(glyph);
+    const float pad_x = 6.0f, pad_y = 1.0f;
+    const ImVec2 br{tl.x + sz.x + pad_x * 2, tl.y + sz.y + pad_y * 2};
+    dl->AddRectFilled(tl, br, IM_COL32(255, 255, 255, 20), 3.0f);
+    dl->AddText(ImVec2(tl.x + pad_x, tl.y + pad_y), col, glyph);
+}
+
+// Each quick-access tile: 140 wide × ~78 tall; icon on top, title
+// centred beneath. Hover raises the glass tint.
+bool draw_quick_tile(ImVec2 tl, ImVec2 size, const Entry& e, bool first_frame) {
+    (void)first_frame;
+    ImGui::SetCursorScreenPos(tl);
+    ImGui::InvisibleButton(e.id.c_str(), size);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool clicked = ImGui::IsItemClicked();
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 bg = hovered
+        ? IM_COL32(255, 255, 255, 18)
+        : IM_COL32(255, 255, 255, 8);
+    const ImU32 ed = hovered
+        ? IM_COL32(255, 255, 255, 30)
+        : IM_COL32(255, 255, 255, 13);
+    dl->AddRectFilled(tl, tl + size, bg, theme::radius_sm);
+    dl->AddRect(tl, tl + size, ed, theme::radius_sm, 0, 1.0f);
+
+    // Decorative glyph — a rounded dot so we don't depend on PUA icons.
+    const ImVec2 icon_c{tl.x + size.x * 0.5f, tl.y + 24.0f};
+    dl->AddCircle(icon_c, 7.0f,
+                  hovered ? theme::to_u32(theme::on_surface_variant)
+                          : theme::to_u32(theme::on_surface_muted),
+                  20, 1.4f);
+
+    // Title centred.
+    const ImVec2 tsz = ImGui::CalcTextSize(e.title.c_str());
+    dl->AddText(ImVec2(tl.x + (size.x - tsz.x) * 0.5f,
+                       tl.y + size.y - tsz.y - 12.0f),
+                hovered ? theme::to_u32(theme::on_surface)
+                        : theme::to_u32(theme::on_surface_variant),
+                e.title.c_str());
+    return clicked;
+}
+
 }  // namespace
 
 void open_command_palette() {
@@ -89,16 +181,13 @@ void open_command_palette() {
     g_open = true;
     g_just_opened = true;
     g_query[0] = '\0';
-    g_focus_idx = 0;
+    g_focus = 0;
 }
 
 void close_command_palette() { g_open = false; }
 bool command_palette_open()  { return g_open;  }
 
 void command_palette_on_key(int vk, bool ctrl_down) {
-    // Ctrl+K toggles. Esc closes (only handled here when palette has
-    // keyboard focus — draw() also watches ImGuiKey_Escape for the
-    // common case).
     if (ctrl_down && vk == 'K') {
         if (g_open) close_command_palette();
         else        open_command_palette();
@@ -106,38 +195,59 @@ void command_palette_on_key(int vk, bool ctrl_down) {
 }
 
 void command_palette_draw() {
-    // Drive the fade even when closed so the last transition animates out.
-    const float dt     = ImGui::GetIO().DeltaTime;
-    g_fade.half_life   = 0.10f;
-    const float alpha  = g_fade.step(g_open ? 1.0f : 0.0f, dt);
+    const float dt    = ImGui::GetIO().DeltaTime;
+    g_fade.half_life  = 0.10f;
+    const float alpha = g_fade.step(g_open ? 1.0f : 0.0f, dt);
     if (alpha < 0.002f && !g_open) return;
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImDrawList* fg = ImGui::GetForegroundDrawList();
 
-    // Scrim — fades with alpha, 75% when fully open.
-    const int scrim_a = static_cast<int>(alpha * 0.75f * 255.0f);
-    fg->AddRectFilled(vp->WorkPos, vp->WorkPos + vp->WorkSize,
-        IM_COL32(8, 8, 10, scrim_a));
+    // ── Scrim — clicking outside closes the palette. Implemented as a
+    //    full-viewport transparent window sitting under the palette
+    //    window so clicks on empty space are caught by its background
+    //    InvisibleButton.
+    {
+        ImGui::SetNextWindowPos(vp->WorkPos);
+        ImGui::SetNextWindowSize(vp->WorkSize);
+        ImGui::SetNextWindowBgAlpha(0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
+        ImGui::Begin("##dxs_cmdk_scrim", nullptr,
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImDrawList* bg_dl = ImGui::GetWindowDrawList();
+        bg_dl->AddRectFilled(vp->WorkPos, vp->WorkPos + vp->WorkSize,
+            IM_COL32(8, 8, 10, static_cast<int>(alpha * 0.75f * 255.0f)));
 
-    // Window dimensions + position (centred horizontally, ~24% from top).
-    constexpr float w = 620.0f;
-    constexpr float h = 440.0f;
-    const ImVec2 centre = vp->WorkPos + vp->WorkSize * 0.5f;
-    const float  lift   = (1.0f - alpha) * 18.0f;
-    const ImVec2 pos{centre.x - w * 0.5f,
-                     vp->WorkPos.y + vp->WorkSize.y * 0.22f + lift};
+        // Click-to-close catcher.
+        ImGui::SetCursorScreenPos(vp->WorkPos);
+        ImGui::InvisibleButton("##cmdk_scrim_hit", vp->WorkSize);
+        if (ImGui::IsItemClicked()) close_command_palette();
+
+        ImGui::End();
+        ImGui::PopStyleVar(4);
+    }
+
+    // ── Content window ───────────────────────────────────────────────
+    constexpr float win_w = 640.0f;
+    constexpr float win_h = 520.0f;   // content grows freely inside
+
+    const ImVec2 centre  = vp->WorkPos + vp->WorkSize * 0.5f;
+    const float  lift    = (1.0f - alpha) * 20.0f;
+    const ImVec2 pos{centre.x - win_w * 0.5f,
+                     vp->WorkPos.y + vp->WorkSize.y * 0.16f + lift};
 
     ImGui::SetNextWindowPos(pos);
-    ImGui::SetNextWindowSize(ImVec2(w, h));
-    ImGui::SetNextWindowBgAlpha(alpha * 0.92f);
-
-    ImGui::PushStyleVar(ImGuiStyleVar_Alpha,        alpha);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, theme::radius_xl);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.047f, 0.047f, 0.047f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_Border,   theme::accent_edge);
+    ImGui::SetNextWindowSize(ImVec2(win_w, win_h));
+    ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 
     const ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
@@ -145,108 +255,247 @@ void command_palette_draw() {
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar;
 
     const bool opened = ImGui::Begin("##dxs_cmdk", nullptr, flags);
-    ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(4);
     if (!opened) { ImGui::End(); return; }
 
-    // ── Input row ──────────────────────────────────────────────────────
-    const float pad = 18.0f;
+    ImDrawList* dl      = ImGui::GetWindowDrawList();
     const ImVec2 win_tl = ImGui::GetWindowPos();
 
-    // Search icon (magnifier "O with tail") drawn manually.
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 icon_c{win_tl.x + pad + 8.0f, win_tl.y + pad + 12.0f};
-    dl->AddCircle(icon_c, 6.0f, theme::to_u32(theme::on_surface_muted), 18, 1.6f);
-    dl->AddLine(icon_c + ImVec2(4.5f, 4.5f),
-                icon_c + ImVec2(9.0f, 9.0f),
-                theme::to_u32(theme::on_surface_muted), 1.6f);
+    // ── Header block: icon square + caption ─────────────────────────
+    constexpr float icon_sz = 56.0f;
+    const ImVec2 icon_tl{win_tl.x + (win_w - icon_sz) * 0.5f,
+                         win_tl.y + 8.0f};
+    const ImVec2 icon_br = icon_tl + ImVec2(icon_sz, icon_sz);
+    dl->AddRectFilled(icon_tl, icon_br,
+        IM_COL32(255, 255, 255, 20),
+        16.0f);
+    dl->AddRect(icon_tl, icon_br,
+        IM_COL32(255, 255, 255, 30),
+        16.0f, 0, 1.0f);
+    draw_magnifier(dl, icon_tl + ImVec2(icon_sz * 0.5f, icon_sz * 0.5f),
+                   11.0f, IM_COL32(204, 204, 204, 255), 1.8f);
 
-    // Input field.
-    ImGui::SetCursorPos(ImVec2(pad + 28.0f, pad));
+    // "Command Palette" label below.
+    ImGui::SetCursorScreenPos(ImVec2(win_tl.x, icon_br.y + 16.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_variant);
+    ImGui::SetWindowFontScale(theme::scale_title * 0.9f);
+    const char* caption = "Command Palette";
+    const ImVec2 csz = ImGui::CalcTextSize(caption);
+    ImGui::SetCursorScreenPos(ImVec2(win_tl.x + (win_w - csz.x) * 0.5f,
+                                     icon_br.y + 16.0f));
+    ImGui::TextUnformatted(caption);
+    ImGui::SetWindowFontScale(theme::scale_default);
+    ImGui::PopStyleColor();
+
+    // ── Input row ────────────────────────────────────────────────────
+    const float input_top = icon_br.y + 16.0f + 32.0f + 16.0f;
+    const float input_h   = 52.0f;
+    const ImVec2 input_tl{win_tl.x + 24.0f, input_top};
+    const ImVec2 input_br{win_tl.x + win_w - 24.0f, input_top + input_h};
+
+    dl->AddRectFilled(input_tl, input_br,
+        IM_COL32(255, 255, 255, 10),
+        theme::radius_lg);
+    dl->AddRect(input_tl, input_br,
+        IM_COL32(255, 255, 255, 30),
+        theme::radius_lg, 0, 1.0f);
+
+    // Magnifier on the left.
+    draw_magnifier(dl,
+        ImVec2(input_tl.x + 22.0f, input_tl.y + input_h * 0.5f),
+        7.0f, theme::to_u32(theme::on_surface_disabled), 1.5f);
+
+    // Input field — no frame, our scaffolding above provides it.
+    ImGui::SetCursorScreenPos(ImVec2(input_tl.x + 48.0f,
+                                     input_tl.y + (input_h - 20.0f) * 0.5f));
     ImGui::PushStyleColor(ImGuiCol_FrameBg,        IM_COL32(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, IM_COL32(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive,  IM_COL32(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_Border,         IM_COL32(0, 0, 0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-    ImGui::SetNextItemWidth(w - pad * 2 - 28.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::SetNextItemWidth(input_br.x - input_tl.x - 48.0f - 20.0f);
     ImGui::SetWindowFontScale(theme::scale_header);
     if (g_just_opened) {
         ImGui::SetKeyboardFocusHere();
         g_just_opened = false;
     }
     ImGui::InputTextWithHint("##cmdk_q",
-        "Search panels, actions...", g_query, sizeof(g_query));
+        "Where do you want to go?", g_query, sizeof(g_query));
     ImGui::SetWindowFontScale(theme::scale_default);
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(4);
 
-    // Hairline under the input row.
-    const float rule_y = win_tl.y + pad + 28.0f + 10.0f;
-    dl->AddLine(ImVec2(win_tl.x + pad, rule_y),
-                ImVec2(win_tl.x + w - pad, rule_y),
-                theme::to_u32(theme::outline), 1.0f);
+    // Underline — appears only when there's a query.
+    if (g_query[0]) {
+        const float y = input_br.y + 1.0f;
+        const float ux0 = input_tl.x + (input_br.x - input_tl.x) * 0.10f;
+        const float ux1 = input_br.x - (input_br.x - input_tl.x) * 0.10f;
+        const float mid = (ux0 + ux1) * 0.5f;
+        dl->AddRectFilledMultiColor(
+            ImVec2(ux0, y), ImVec2(mid, y + 2.0f),
+            IM_COL32(255, 255, 255, 0),  IM_COL32(255, 255, 255, 76),
+            IM_COL32(255, 255, 255, 76), IM_COL32(255, 255, 255, 0));
+        dl->AddRectFilledMultiColor(
+            ImVec2(mid, y), ImVec2(ux1, y + 2.0f),
+            IM_COL32(255, 255, 255, 76), IM_COL32(255, 255, 255, 0),
+            IM_COL32(255, 255, 255, 0),  IM_COL32(255, 255, 255, 76));
+    }
 
-    // ── Filtered list ──────────────────────────────────────────────────
-    const auto entries = filter(collect_entries(), g_query);
-    if (g_focus_idx >= static_cast<int>(entries.size()))
-        g_focus_idx = std::max(0, static_cast<int>(entries.size()) - 1);
+    // ── Results block ────────────────────────────────────────────────
+    const auto all      = collect_entries();
+    const auto filtered = filter(all, g_query);
 
-    // Arrow nav + Enter + Esc.
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
-        if (!entries.empty())
-            g_focus_idx = std::min<int>(g_focus_idx + 1, int(entries.size()) - 1);
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
-        g_focus_idx = std::max(g_focus_idx - 1, 0);
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        close_command_palette();
-    }
+    if (g_focus >= static_cast<int>(filtered.size()))
+        g_focus = std::max(0, static_cast<int>(filtered.size()) - 1);
+
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && !filtered.empty())
+        g_focus = std::min<int>(g_focus + 1, int(filtered.size()) - 1);
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+        g_focus = std::max(g_focus - 1, 0);
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) close_command_palette();
     const bool enter_hit = ImGui::IsKeyPressed(ImGuiKey_Enter) ||
                            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
 
-    const float list_top = rule_y + 8.0f;
-    const float row_h    = 40.0f;
-    ImGui::SetCursorScreenPos(ImVec2(win_tl.x + pad, list_top));
-    ImGui::BeginChild("##cmdk_list",
-        ImVec2(w - pad * 2, h - (list_top - win_tl.y) - pad), false,
-        ImGuiWindowFlags_NoScrollbar);
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const auto& e = entries[i];
-        const bool focused = (static_cast<int>(i) == g_focus_idx);
-        const ImVec2 rtl = ImGui::GetCursorScreenPos();
-        const ImVec2 rbr = rtl + ImVec2(w - pad * 2, row_h);
+    const float results_top = input_br.y + 32.0f;
+    const float results_h   = win_h - (results_top - win_tl.y) - 56.0f;
 
-        ImGui::InvisibleButton(e.id.c_str(), rbr - rtl);
-        const bool hovered = ImGui::IsItemHovered();
-        const bool clicked = ImGui::IsItemClicked();
-        if (hovered) g_focus_idx = static_cast<int>(i);
+    ImGui::SetCursorScreenPos(ImVec2(win_tl.x + 24.0f, results_top));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::transparent);
+    ImGui::BeginChild("##cmdk_results",
+        ImVec2(win_w - 48.0f, results_h),
+        false, ImGuiWindowFlags_NoScrollbar);
 
-        ImU32 bg = IM_COL32(0, 0, 0, 0);
-        if (focused) bg = IM_COL32(255, 255, 255, 16);
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            rtl, rbr, bg, theme::radius_sm);
+    if (g_query[0] == '\0') {
+        // ── Quick-access grid ── 4 columns, tile 140×78, gap 10 ──
+        constexpr float tile_w = 140.0f;
+        constexpr float tile_h = 78.0f;
+        constexpr float gap    = 10.0f;
+        const int cols = std::max(1,
+            static_cast<int>((win_w - 48.0f + gap) / (tile_w + gap)));
+        const float grid_w = cols * tile_w + (cols - 1) * gap;
+        const float ox = (win_w - 48.0f - grid_w) * 0.5f;
+        const ImVec2 grid_tl = ImGui::GetCursorScreenPos() + ImVec2(ox, 0);
 
-        // Title on the left, category on the right.
-        const ImVec4 title_col = focused ? theme::on_surface : theme::on_surface_variant;
-        const ImVec2 tsz = ImGui::CalcTextSize(e.title.c_str());
-        ImGui::GetWindowDrawList()->AddText(
-            ImVec2(rtl.x + 14.0f, rtl.y + (row_h - tsz.y) * 0.5f),
-            theme::to_u32(title_col), e.title.c_str());
-
-        if (!e.category.empty()) {
-            const ImVec2 csz = ImGui::CalcTextSize(e.category.c_str());
-            ImGui::GetWindowDrawList()->AddText(
-                ImVec2(rbr.x - 14.0f - csz.x, rtl.y + (row_h - csz.y) * 0.5f),
-                theme::to_u32(theme::on_surface_disabled), e.category.c_str());
+        const int n = static_cast<int>(std::min<size_t>(filtered.size(), 12));
+        for (int i = 0; i < n; ++i) {
+            const int r = i / cols, c = i % cols;
+            const ImVec2 t = grid_tl + ImVec2(c * (tile_w + gap),
+                                              r * (tile_h + gap));
+            if (draw_quick_tile(t, ImVec2(tile_w, tile_h),
+                                filtered[i], g_just_opened)) {
+                ClickGui::instance().select(filtered[i].id);
+                close_command_palette();
+            }
         }
 
-        if (clicked || (enter_hit && focused)) {
-            ClickGui::instance().select(e.id);
-            close_command_palette();
+        // ImGui layout needs to know the grid's extent.
+        const int rows = (n + cols - 1) / cols;
+        ImGui::Dummy(ImVec2(grid_w, rows * tile_h + (rows - 1) * gap));
+    } else if (filtered.empty()) {
+        // ── Empty state ──
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_disabled);
+        const char* msg = "No matching panels or actions";
+        const ImVec2 mz = ImGui::CalcTextSize(msg);
+        ImGui::SetCursorPosX((win_w - 48.0f - mz.x) * 0.5f);
+        ImGui::Dummy(ImVec2(0, 32.0f));
+        ImGui::SetCursorPosX((win_w - 48.0f - mz.x) * 0.5f);
+        ImGui::TextUnformatted(msg);
+        ImGui::PopStyleColor();
+    } else {
+        // ── Grouped results ──
+        const auto groups = group_by_category(filtered);
+        for (const auto& g : groups) {
+            // Category caption.
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_disabled);
+            ImGui::SetWindowFontScale(theme::scale_caption);
+            ImGui::SetCursorPosX(4.0f);
+            ImGui::TextUnformatted(g.category.empty() ? "General"
+                                                      : g.category.c_str());
+            ImGui::SetWindowFontScale(theme::scale_default);
+            ImGui::PopStyleColor();
+            ImGui::Dummy(ImVec2(0, 4.0f));
+
+            for (int idx : g.indices) {
+                const auto& e = filtered[idx];
+                const bool focused = (idx == g_focus);
+                const ImVec2 rtl = ImGui::GetCursorScreenPos();
+                const ImVec2 rsz{win_w - 48.0f, 38.0f};
+
+                ImGui::InvisibleButton(e.id.c_str(), rsz);
+                const bool hovered = ImGui::IsItemHovered();
+                const bool clicked = ImGui::IsItemClicked();
+                if (hovered) g_focus = idx;
+
+                const ImU32 bg = (focused || hovered)
+                    ? IM_COL32(255, 255, 255, 16)
+                    : IM_COL32(0, 0, 0, 0);
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    rtl, rtl + rsz, bg, theme::radius_sm);
+
+                // Row content — dot marker + title left, ↵ hint right (when focused).
+                const ImVec2 dot_c{rtl.x + 16.0f, rtl.y + rsz.y * 0.5f};
+                ImGui::GetWindowDrawList()->AddCircle(dot_c, 4.0f,
+                    (focused || hovered)
+                        ? theme::to_u32(theme::on_surface)
+                        : theme::to_u32(theme::on_surface_muted),
+                    16, 1.2f);
+
+                const ImU32 tcol = (focused || hovered)
+                    ? theme::to_u32(theme::on_surface)
+                    : theme::to_u32(theme::on_surface_variant);
+                const ImVec2 tsz = ImGui::CalcTextSize(e.title.c_str());
+                ImGui::GetWindowDrawList()->AddText(
+                    ImVec2(rtl.x + 30.0f, rtl.y + (rsz.y - tsz.y) * 0.5f),
+                    tcol, e.title.c_str());
+
+                if (focused) {
+                    const char* kbd = "Enter";
+                    const ImVec2 kz = ImGui::CalcTextSize(kbd);
+                    draw_kbd(ImGui::GetWindowDrawList(),
+                        ImVec2(rtl.x + rsz.x - kz.x - 18.0f,
+                               rtl.y + (rsz.y - kz.y) * 0.5f - 1.0f),
+                        kbd, theme::to_u32(theme::on_surface_disabled));
+                }
+
+                if (clicked || (enter_hit && focused)) {
+                    ClickGui::instance().select(e.id);
+                    close_command_palette();
+                }
+            }
+            ImGui::Dummy(ImVec2(0, 8.0f));
         }
     }
+
     ImGui::EndChild();
+    ImGui::PopStyleColor();
+
+    // ── Footer shortcut row ──────────────────────────────────────────
+    const float foot_y = win_tl.y + win_h - 32.0f;
+    struct KbdSlot { const char* key; const char* label; };
+    constexpr KbdSlot slots[] = {
+        {"\xe2\x86\x91\xe2\x86\x93", "navigate"},   // ↑↓
+        {"Enter",                      "open"},
+        {"Esc",                        "close"},
+    };
+    float total = 0.0f;
+    constexpr float gap_kbd = 6.0f, gap_slots = 22.0f;
+    for (const auto& s : slots) {
+        total += ImGui::CalcTextSize(s.key).x + 12.0f + gap_kbd +
+                 ImGui::CalcTextSize(s.label).x;
+    }
+    total += gap_slots * (sizeof(slots) / sizeof(slots[0]) - 1);
+    float fx = win_tl.x + (win_w - total) * 0.5f;
+    for (const auto& s : slots) {
+        const ImVec2 kz = ImGui::CalcTextSize(s.key);
+        draw_kbd(dl, ImVec2(fx, foot_y), s.key,
+                 theme::to_u32(theme::on_surface_disabled));
+        fx += kz.x + 12.0f + gap_kbd;
+        dl->AddText(ImVec2(fx, foot_y + 1.0f),
+                    theme::to_u32(theme::on_surface_disabled),
+                    s.label);
+        fx += ImGui::CalcTextSize(s.label).x + gap_slots;
+    }
 
     ImGui::End();
 }

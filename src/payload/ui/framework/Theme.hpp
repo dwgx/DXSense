@@ -336,6 +336,14 @@ bool segmented(const char* id,
 // panel. Draws a hairline rule with the caption floated above it.
 void section_divider(const char* caption);
 
+// Inline sparkline — small ring-buffer graph for dashboard tiles. Draws a
+// filled gradient under the line + end-of-series dot with halo. `col` is
+// the line colour; the fill uses the same hue at lower alpha. `data`
+// must be a contiguous range of N floats >= 2. Cursor advances by size.
+void sparkline(const float* data, int count,
+               ImVec2 size = ImVec2(70, 26),
+               ImVec4 col = ImVec4(0.831f, 0.831f, 0.831f, 1.0f));
+
 // Reset reveal — painted over the current content area when the user hits
 // "Restore defaults". Instead of silently wiping, we snapshot the live
 // Config state BEFORE erasing it and display each (key, value) in a scan-

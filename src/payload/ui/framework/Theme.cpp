@@ -1213,6 +1213,68 @@ void paint_reset_reveal(ImVec2 tl, ImVec2 size) {
     dl->AddText(font, f_sz, f_pos, f_col, footer);
 }
 
+// ─── Sparkline ───────────────────────────────────────────────────────────
+//
+// Normalises the data to the visible range with 5% top/bottom padding so
+// flat series don't crush against the edges. Two passes through the data:
+// one for the filled polygon (gradient from line-colour @ ~19% at the top
+// down to fully transparent at the bottom), one for the stroked line.
+// End-of-series dot + halo narrates "this is the current value".
+
+void sparkline(const float* data, int count, ImVec2 size, ImVec4 col) {
+    if (!data || count < 2) {
+        ImGui::Dummy(size);
+        return;
+    }
+    const ImVec2 tl = ImGui::GetCursorScreenPos();
+    ImDrawList*  dl = ImGui::GetWindowDrawList();
+
+    float lo = data[0], hi = data[0];
+    for (int i = 1; i < count; ++i) {
+        if (data[i] < lo) lo = data[i];
+        if (data[i] > hi) hi = data[i];
+    }
+    const float range = (hi - lo <= 0.0f) ? 1.0f : (hi - lo);
+    const float top_pad    = size.y * 0.05f;
+    const float usable_h   = size.y * 0.85f;
+    const float step_x     = size.x / static_cast<float>(count - 1);
+
+    auto y_at = [&](int i) {
+        return tl.y + top_pad + usable_h - (data[i] - lo) / range * usable_h;
+    };
+
+    // Filled polygon — walk once to build the top edge, close through the
+    // bottom corners so ImGui's fill fills the area. AddConvexPolyFilled
+    // needs monotone geometry, which this is by construction.
+    std::vector<ImVec2> poly;
+    poly.reserve(count + 2);
+    for (int i = 0; i < count; ++i) {
+        poly.emplace_back(tl.x + i * step_x, y_at(i));
+    }
+    poly.emplace_back(tl.x + size.x, tl.y + size.y);
+    poly.emplace_back(tl.x,          tl.y + size.y);
+
+    ImVec4 fill = col; fill.w *= 0.19f;
+    dl->AddConvexPolyFilled(poly.data(), static_cast<int>(poly.size()),
+                            to_u32(fill));
+
+    // Stroked line.
+    for (int i = 0; i + 1 < count; ++i) {
+        dl->AddLine(
+            ImVec2(tl.x +  i      * step_x, y_at(i)),
+            ImVec2(tl.x + (i + 1) * step_x, y_at(i + 1)),
+            to_u32(col), 1.4f);
+    }
+
+    // End-of-series dot with halo.
+    const ImVec2 end_c{tl.x + size.x, y_at(count - 1)};
+    ImVec4 halo = col; halo.w *= 0.30f;
+    dl->AddCircleFilled(end_c, 5.0f, to_u32(halo), 16);
+    dl->AddCircleFilled(end_c, 2.4f, to_u32(col),  16);
+
+    ImGui::Dummy(size);
+}
+
 // ─── Section divider ─────────────────────────────────────────────────────
 
 void section_divider(const char* caption) {

@@ -6,13 +6,123 @@
 #endif
 #include "core/Keybinds.hpp"
 #include "core/Localization.hpp"
-#include "ui/framework/ClickGui.hpp"
 #include "ui/framework/Splash.hpp"
 #include "ui/framework/Theme.hpp"
 
+#include <Windows.h>
 #include <imgui.h>
 
+#include <cfloat>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
 namespace dxs {
+
+namespace {
+
+constexpr float kMonoScale = 12.0f / theme::font_base;
+
+struct KeybindRow {
+    std::string action;
+    std::string key;
+};
+
+std::vector<KeybindRow> collect_keybind_rows() {
+    auto& kb = Keybinds::instance();
+
+    std::vector<KeybindRow> rows;
+    rows.reserve(kb.all().size() + 2);
+    std::unordered_set<std::string> seen;
+
+    auto add_row = [&](std::string action, std::string key) {
+        if (seen.insert(action).second) {
+            rows.push_back({std::move(action), std::move(key)});
+        }
+    };
+
+    for (const auto& slot : kb.all()) {
+        if (slot.name == "overlay.toggle") {
+            add_row(slot.name, slot.binding.to_string());
+            break;
+        }
+    }
+    if (!seen.count("overlay.toggle")) {
+        add_row("overlay.toggle",
+                Keybinds::Binding{VK_INSERT, false, false, false}.to_string());
+    }
+
+    for (const auto& slot : kb.all()) {
+        if (slot.name == "command_palette") {
+            add_row(slot.name, slot.binding.to_string());
+            break;
+        }
+    }
+    if (!seen.count("command_palette")) {
+        add_row("command_palette",
+                Keybinds::Binding{'K', true, false, false}.to_string());
+    }
+
+    for (const auto& slot : kb.all()) {
+        add_row(slot.name, slot.binding.to_string());
+    }
+
+    return rows;
+}
+
+void draw_keybind_card(const std::vector<KeybindRow>& rows) {
+    const float width  = ImGui::GetContentRegionAvail().x;
+    const float row_h  = 38.0f;
+    const float pad    = 16.0f;
+    const float height = pad * 2.0f + row_h * rows.size();
+
+    ImGui::InvisibleButton("##settings.keybinds", ImVec2(width, height));
+    const ImVec2 tl      = ImGui::GetItemRectMin();
+    const ImVec2 br      = ImGui::GetItemRectMax();
+    const ImVec2 restore = ImGui::GetCursorScreenPos();
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(tl, br, IM_COL32(255, 255, 255, 8), theme::radius_lg);
+    dl->AddRect(tl, br, theme::to_u32(theme::outline), theme::radius_lg, 0, 1.0f);
+    theme::draw_inner_highlight(tl, br, theme::radius_lg);
+
+    for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
+        const KeybindRow& row = rows[static_cast<std::size_t>(i)];
+        const float row_top = tl.y + pad + row_h * i;
+        ImFont* font = ImGui::GetFont();
+
+        ImGui::SetCursorScreenPos(
+            ImVec2(tl.x + pad, row_top + (row_h - ImGui::GetTextLineHeight()) * 0.5f));
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface);
+        ImGui::SetWindowFontScale(theme::scale_body);
+        ImGui::TextUnformatted(row.action.c_str());
+        ImGui::SetWindowFontScale(theme::scale_default);
+        ImGui::PopStyleColor();
+
+        const ImVec2 key_text = font->CalcTextSizeA(
+            12.0f, FLT_MAX, 0.0f, row.key.c_str(), nullptr);
+        const float pill_h    = key_text.y + 6.0f;
+        const float pill_w    = key_text.x + 24.0f;
+        const ImVec2 pill_tl(br.x - pad - pill_w, row_top + (row_h - pill_h) * 0.5f);
+        const ImVec2 pill_br = pill_tl + ImVec2(pill_w, pill_h);
+
+        dl->AddRectFilled(pill_tl, pill_br, IM_COL32(255, 255, 255, 15), theme::radius_xs);
+        const ImVec2 key_pos(
+            pill_tl.x + (pill_w - key_text.x) * 0.5f,
+            pill_tl.y + (pill_h - key_text.y) * 0.5f);
+        dl->AddText(font, 12.0f, key_pos, theme::to_u32(theme::primary), row.key.c_str());
+
+        if (i + 1 < static_cast<int>(rows.size())) {
+            const float y = row_top + row_h;
+            dl->AddLine(ImVec2(tl.x + pad, y), ImVec2(br.x - pad, y),
+                        IM_COL32(255, 255, 255, 10), 1.0f);
+        }
+    }
+
+    ImGui::SetCursorScreenPos(restore);
+}
+
+}  // namespace
 
 std::string_view SettingsPanel::category() const { return L("sidebar.settings"); }
 std::string_view SettingsPanel::title()    const { return L("panel.settings.title"); }
@@ -21,64 +131,55 @@ void SettingsPanel::draw() {
     auto& cfg = Config::instance();
     auto& loc = Localization::instance();
 
-    theme::section_label("PREFERENCES");
-    ImGui::Dummy(ImVec2(0, theme::space_xs));
+    theme::section_label("CONFIGURATION");
+    ImGui::Dummy(ImVec2(0.0f, theme::space_xs));
     ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
-    ImGui::TextWrapped("Preferences and keybind configuration for DXSense.");
+    ImGui::SetWindowFontScale(theme::scale_body);
+    const std::string persisted =
+        "Overlay settings persisted to " + cfg.path().string() + ".";
+    ImGui::TextWrapped("%s", persisted.c_str());
+    ImGui::SetWindowFontScale(theme::scale_default);
     ImGui::PopStyleColor();
 
-    ImGui::Dummy(ImVec2(0, theme::space_lg));
+    ImGui::Dummy(ImVec2(0.0f, theme::space_lg));
 
-    // Language ----------------------------------------------------------------
-    theme::section_label(L("settings.language"));
-    ImGui::Dummy(ImVec2(0, theme::space_xs));
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+    ImGui::SetWindowFontScale(theme::scale_caption);
+    ImGui::TextUnformatted("LANGUAGE");
+    ImGui::SetWindowFontScale(theme::scale_default);
+    ImGui::PopStyleColor();
+    ImGui::Dummy(ImVec2(0.0f, theme::space_xs));
 
-    // Segmented selector — the two languages are mutex options, and the
-    // previous pair of styled ImGui::Buttons suffered from the native
-    // text-baseline drift (ENG / 简体 sat a couple pixels low of centre).
-    // theme::segmented renders labels with manual CalcTextSize centring
-    // and glides a silver pill between options.
     const char* const lang_opts[] = {
         "English",
         "\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87",
     };
     constexpr const char* const lang_codes[] = {"en", "zh-CN"};
     int sel = (loc.language() == "zh-CN") ? 1 : 0;
-    if (theme::segmented("##lang", lang_opts, 2, &sel)) {
+    if (theme::segmented("##settings.lang", lang_opts, 2, &sel)) {
         loc.set_language(lang_codes[sel]);
-        ClickGui::instance().toast(std::string(lang_opts[sel]) + " \xe2\x9c\x93");
     }
 
-    ImGui::Dummy(ImVec2(0, theme::space_lg));
-    ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, theme::space_lg));
+    ImGui::Dummy(ImVec2(0.0f, theme::space_xl));
 
-    // Keybind editor ----------------------------------------------------------
     theme::section_label("KEYBINDS");
-    ImGui::Dummy(ImVec2(0, theme::space_xs));
-    Keybinds::instance().draw_editor();
+    ImGui::Dummy(ImVec2(0.0f, theme::space_sm));
+    const std::vector<KeybindRow> keybind_rows = collect_keybind_rows();
+    draw_keybind_card(keybind_rows);
 
-    ImGui::Dummy(ImVec2(0, theme::space_lg));
-    ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, theme::space_lg));
+    ImGui::Dummy(ImVec2(0.0f, theme::space_xl));
 
-    // Config file location ---------------------------------------------------
-    theme::section_label("CONFIG FILE");
-    ImGui::Dummy(ImVec2(0, theme::space_xs));
+    theme::section_label("CONFIG");
+    ImGui::Dummy(ImVec2(0.0f, theme::space_xs));
     ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+    ImGui::SetWindowFontScale(kMonoScale);
     ImGui::TextWrapped("%s", cfg.path().string().c_str());
+    ImGui::SetWindowFontScale(theme::scale_default);
     ImGui::PopStyleColor();
 
-    ImGui::Dummy(ImVec2(0, theme::space_lg));
-    ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, theme::space_lg));
+    ImGui::Dummy(ImVec2(0.0f, theme::space_xl));
 
-    // Actions -----------------------------------------------------------------
-    theme::section_label("ACTIONS");
-    ImGui::Dummy(ImVec2(0, theme::space_sm));
-
-    // Reset to defaults
-    if (theme::ghost_button("Restore defaults", ImVec2(160, 32))) {
+    if (theme::danger_button("Reset all settings", ImVec2(170, theme::control_h_md))) {
         theme::dialog_open("settings.reset");
     }
     if (theme::dialog_draw(theme::DialogSpec{
@@ -91,23 +192,17 @@ void SettingsPanel::draw() {
         "Cancel",
         theme::DialogKind::Danger,
     })) {
-        // Snapshot the live KV BEFORE erase_all so the reveal can enumerate
-        // what was cleared. Then wipe, flush, and hand the snapshot to the
-        // reveal — widgets will re-hydrate from the empty config on the
-        // next paint while the scan-line animation plays over top.
         auto before = cfg.snapshot_kv();
         cfg.erase_all();
         cfg.flush();
         theme::trigger_reset_reveal(std::move(before));
     }
 
-    ImGui::SameLine(0, theme::space_md);
+    ImGui::SameLine(0.0f, theme::space_md);
 
-    // Uninject (eject DLL)
-    if (theme::danger_button("Uninject DLL", ImVec2(140, 32))) {
+    if (theme::danger_button("Uninject DLL", ImVec2(140, theme::control_h_md))) {
         theme::dialog_open("settings.eject");
     }
-
     if (theme::dialog_draw(theme::DialogSpec{
         "settings.eject",
         "Uninject DXSense?",
@@ -119,8 +214,6 @@ void SettingsPanel::draw() {
         theme::DialogKind::Danger,
     })) {
 #ifndef DXS_PREVIEW
-        // We will trigger the splash in the Engine flow or here? 
-        // Best to trigger here before Engine rips it out.
         splash::begin_exit();
         Engine::instance().request_eject();
 #else
