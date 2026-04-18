@@ -6,6 +6,9 @@
 #endif
 #include "core/Keybinds.hpp"
 #include "core/Localization.hpp"
+#include "core/procedure/Loom.hpp"
+#include "core/procedure/Pin.hpp"
+#include "core/procedure/Procedure.hpp"
 #include "ui/framework/Splash.hpp"
 #include "ui/framework/Theme.hpp"
 
@@ -166,6 +169,119 @@ void SettingsPanel::draw() {
     ImGui::Dummy(ImVec2(0.0f, theme::space_sm));
     const std::vector<KeybindRow> keybind_rows = collect_keybind_rows();
     draw_keybind_card(keybind_rows);
+
+    ImGui::Dummy(ImVec2(0.0f, theme::space_xl));
+
+    // ── Procedure sigils — every procedure that declares a PinKey
+    //   tagged "sigil" shows up here with its current binding. Source
+    //   of truth is the PinKey itself, which the SigilDispatcher in
+    //   Loom polls each frame; we just display what it sees.
+    theme::section_label("PROCEDURE HOTKEYS", "Modules → Sigils");
+    ImGui::Dummy(ImVec2(0.0f, theme::space_sm));
+
+    struct SigilRow {
+        std::string handle;
+        std::string title;
+        std::string key_label;
+        bool        bound = false;
+    };
+    std::vector<SigilRow> sigil_rows;
+    for (procedure::Procedure* p : procedure::Loom::instance().all()) {
+        if (!p) continue;
+        for (procedure::PinBase* pin : p->pins()) {
+            if (!pin || pin->tag() != "sigil") continue;
+            if (auto* k = dynamic_cast<procedure::PinKey*>(pin)) {
+                sigil_rows.push_back({
+                    std::string(p->manifest().handle),
+                    std::string(p->manifest().title),
+                    procedure::PinKey::label_for(k->get()),
+                    k->bound(),
+                });
+                break;
+            }
+        }
+    }
+
+    if (sigil_rows.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+        ImGui::TextUnformatted("No procedures registered.");
+        ImGui::PopStyleColor();
+    } else {
+        // Reuse the same visual form as the keybind card but with three
+        // columns: title · handle (caption grey) · key pill.
+        const float width  = ImGui::GetContentRegionAvail().x;
+        const float row_h  = 38.0f;
+        const float pad    = 16.0f;
+        const float height = pad * 2.0f + row_h * sigil_rows.size();
+
+        ImGui::InvisibleButton("##settings.sigils", ImVec2(width, height));
+        const ImVec2 tl = ImGui::GetItemRectMin();
+        const ImVec2 br = ImGui::GetItemRectMax();
+        const ImVec2 restore = ImGui::GetCursorScreenPos();
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(tl, br, theme::rgba_u32(255, 255, 255, 8), theme::radius_lg);
+        dl->AddRect(tl, br, theme::to_u32(theme::outline), theme::radius_lg, 0, 1.0f);
+        theme::draw_inner_highlight(tl, br, theme::radius_lg);
+
+        ImFont* font = ImGui::GetFont();
+
+        for (int i = 0; i < static_cast<int>(sigil_rows.size()); ++i) {
+            const SigilRow& row = sigil_rows[static_cast<std::size_t>(i)];
+            const float row_top = tl.y + pad + row_h * i;
+
+            // Title (bold-ish) on the left.
+            ImGui::SetCursorScreenPos(ImVec2(
+                tl.x + pad,
+                row_top + (row_h - ImGui::GetTextLineHeight()) * 0.5f));
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface);
+            ImGui::SetWindowFontScale(theme::scale_body);
+            ImGui::TextUnformatted(row.title.c_str());
+            ImGui::SetWindowFontScale(theme::scale_default);
+            ImGui::PopStyleColor();
+
+            // Handle (muted) right after, same line.
+            const ImVec2 title_sz = font->CalcTextSizeA(
+                theme::font_body, FLT_MAX, 0.0f, row.title.c_str());
+            dl->AddText(font, theme::font_caption,
+                ImVec2(tl.x + pad + title_sz.x + 10.0f,
+                       row_top + (row_h - theme::font_caption) * 0.5f - 1.0f),
+                theme::to_u32(theme::on_surface_disabled),
+                row.handle.c_str());
+
+            // Key pill right-aligned.
+            const ImVec2 key_text = font->CalcTextSizeA(
+                12.0f, FLT_MAX, 0.0f, row.key_label.c_str());
+            const float pill_h = key_text.y + 6.0f;
+            const float pill_w = std::max(key_text.x + 24.0f, 56.0f);
+            const ImVec2 pill_tl(br.x - pad - pill_w,
+                                 row_top + (row_h - pill_h) * 0.5f);
+            const ImVec2 pill_br = pill_tl + ImVec2(pill_w, pill_h);
+            dl->AddRectFilled(pill_tl, pill_br,
+                theme::rgba_u32(255, 255, 255, row.bound ? 24 : 12),
+                theme::radius_xs);
+            const ImVec2 key_pos(
+                pill_tl.x + (pill_w - key_text.x) * 0.5f,
+                pill_tl.y + (pill_h - key_text.y) * 0.5f);
+            dl->AddText(font, 12.0f, key_pos,
+                theme::to_u32(row.bound ? theme::primary : theme::on_surface_muted),
+                row.key_label.c_str());
+
+            if (i + 1 < static_cast<int>(sigil_rows.size())) {
+                const float y = row_top + row_h;
+                dl->AddLine(ImVec2(tl.x + pad, y), ImVec2(br.x - pad, y),
+                    theme::rgba_u32(255, 255, 255, 10), 1.0f);
+            }
+        }
+
+        ImGui::SetCursorScreenPos(restore);
+        ImGui::Dummy(ImVec2(0.0f, theme::space_sm));
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+        ImGui::SetWindowFontScale(theme::scale_caption);
+        ImGui::TextUnformatted("Bind sigils from the procedure's card in Modules.");
+        ImGui::SetWindowFontScale(theme::scale_default);
+        ImGui::PopStyleColor();
+    }
 
     ImGui::Dummy(ImVec2(0.0f, theme::space_xl));
 

@@ -150,6 +150,14 @@ const char* PinKey::label_for(int vk) {
 }
 
 void PinKey::draw() {
+    // PushID on config_key_ — guarantees each PinKey has its own ImGui
+    // ID scope regardless of button body text. Prior to this fix every
+    // unbound PinKey rendered its button as "Sigil: (unbound)", and
+    // theme::ghost_button's internal PushID(body) collapsed them to the
+    // same ID → clicks never routed to the right PinKey instance so
+    // "无法绑定 Hotkey".
+    ImGui::PushID(config_key_.c_str());
+
     ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
     ImGui::SetWindowFontScale(theme::scale_caption);
     ImGui::TextUnformatted(std::string(label()).c_str());
@@ -161,14 +169,23 @@ void PinKey::draw() {
     if (listening) std::snprintf(body, sizeof(body), "Press a key…  (Esc = cancel)");
     else           std::snprintf(body, sizeof(body), "Sigil: %s", label_for(value_));
 
-    if (theme::ghost_button(body, ImVec2(180.0f, 28.0f))) {
+    if (theme::ghost_button(body, ImVec2(200.0f, 28.0f))) {
         g_key_listening_for = listening ? nullptr : this;
     }
 
     if (listening) {
         // Scan the keyboard for the first down key this frame. Native VK
-        // range is [0x01..0xFE]; we skip mouse buttons (0x01..0x06).
+        // range is [0x01..0xFE]; we skip mouse buttons AND modifier-only
+        // keys so holding Shift/Ctrl while clicking the button doesn't
+        // bind the modifier itself.
+        auto is_modifier_only = [](int vk) {
+            return vk == VK_SHIFT   || vk == VK_CONTROL || vk == VK_MENU ||
+                   vk == VK_LSHIFT  || vk == VK_RSHIFT  ||
+                   vk == VK_LCONTROL|| vk == VK_RCONTROL||
+                   vk == VK_LMENU   || vk == VK_RMENU;
+        };
         for (int vk = 0x07; vk < 0xFF; ++vk) {
+            if (is_modifier_only(vk)) continue;
             if ((GetAsyncKeyState(vk) & 0x8000) == 0) continue;
             g_key_listening_for = nullptr;
             if (is_listen_cancel(vk)) {
@@ -179,6 +196,8 @@ void PinKey::draw() {
             break;
         }
     }
+
+    ImGui::PopID();
 }
 
 // ─── PinColor ───────────────────────────────────────────────────────────

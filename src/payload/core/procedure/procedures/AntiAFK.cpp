@@ -1,9 +1,12 @@
 #include "AntiAFK.hpp"
 
 #include "core/procedure/Tick.hpp"
+#include "ui/framework/Notifications.hpp"
 
 #include <Windows.h>
 #include <cmath>
+#include <cstdio>
+#include <string>
 
 namespace dxs::procedure {
 
@@ -20,22 +23,42 @@ float xz_distance(const Vec3& a, const Vec3& b) {
     return std::sqrt(dx * dx + dz * dz);
 }
 
-// Relative mouse move via SendInput. Using MOUSEEVENTF_MOVE (relative)
-// rather than MOUSEEVENTF_ABSOLUTE so we don't fight whatever cursor
-// management the overlay is doing.  Two sub-pixel jitters (forward then
-// back) net to zero — visually the cursor doesn't move, but Windows
-// counts it as input for idle-timer purposes.
+// Wiggle input. Three channels so at least one reaches whatever the game
+// actually counts as activity:
+//   1. Relative mouse MOVE (forward+back = visible cursor jitter).
+//   2. Key-down + key-up on VK_F15 — a legacy virtual-key that no modern
+//      game binds to anything, so pressing it is harmless but counts as
+//      real keyboard input for every idle-timer scheme (Windows, game,
+//      Steam, anti-cheat, etc.).
+//   3. Could in theory do mouse-button events, but those risk triggering
+//      UI clicks, so we stick with MOVE + F15.
+//
+// The previous "net-zero 2 px" dance was invisible on desktop AND got
+// silently dropped by games that use raw input for camera look — user
+// confirmed AntiAFK "seemed to do nothing". Now we move by a real px
+// amount and pair with a keystroke.
 void send_wiggle(int pixels) {
-    INPUT in[2] = {};
-    in[0].type = INPUT_MOUSE;
-    in[0].mi.dx = pixels;
-    in[0].mi.dy = 0;
-    in[0].mi.dwFlags = MOUSEEVENTF_MOVE;
-    in[1].type = INPUT_MOUSE;
-    in[1].mi.dx = -pixels;
-    in[1].mi.dy = 0;
-    in[1].mi.dwFlags = MOUSEEVENTF_MOVE;
-    SendInput(2, in, sizeof(INPUT));
+    INPUT in[4] = {};
+
+    // Mouse: jitter +pixels then -pixels (visually cancels).
+    in[0].type         = INPUT_MOUSE;
+    in[0].mi.dx        = pixels;
+    in[0].mi.dy        = 0;
+    in[0].mi.dwFlags   = MOUSEEVENTF_MOVE;
+    in[1].type         = INPUT_MOUSE;
+    in[1].mi.dx        = -pixels;
+    in[1].mi.dy        = 0;
+    in[1].mi.dwFlags   = MOUSEEVENTF_MOVE;
+
+    // Key tap: F15 down + up. F15 is harmless — no OS or game binds it.
+    in[2].type            = INPUT_KEYBOARD;
+    in[2].ki.wVk          = VK_F15;
+    in[2].ki.dwFlags      = 0;                 // key down
+    in[3].type            = INPUT_KEYBOARD;
+    in[3].ki.wVk          = VK_F15;
+    in[3].ki.dwFlags      = KEYEVENTF_KEYUP;   // key up
+
+    SendInput(4, in, sizeof(INPUT));
 }
 
 }  // namespace
@@ -49,8 +72,11 @@ AntiAFK::AntiAFK()
       },
       idle_threshold_s_(this, "idle_seconds", "Idle threshold (s)", 30.0f,
                         {5.0f, 600.0f}),
-      wiggle_pixels_   (this, "pixels",       "Wiggle amount (px)",  2.0f,
-                        {1.0f, 16.0f}),
+      // 6 px default — big enough to see in the cursor trail so the user
+      // knows AntiAFK is working, small enough to not disrupt aiming if
+      // left on during a match. 1-px is effectively invisible.
+      wiggle_pixels_   (this, "pixels",       "Wiggle amount (px)",  6.0f,
+                        {1.0f, 24.0f}),
       min_interval_s_  (this, "interval_s",   "Min gap between wiggles", 4.0f,
                         {1.0f, 30.0f}),
       only_lobby_      (this, "only_lobby",   "Lobby only", true),
@@ -102,7 +128,8 @@ Phase AntiAFK::weave(Tick& t) {
         return Phase::Engaged;
     }
 
-    send_wiggle(static_cast<int>(wiggle_pixels_.get() + 0.5f));
+    const int px = static_cast<int>(wiggle_pixels_.get() + 0.5f);
+    send_wiggle(px);
     last_wiggle_at_ = now;
 
     // Emit for auditability — easier to tell "did Anti-AFK actually
@@ -110,9 +137,15 @@ Phase AntiAFK::weave(Tick& t) {
     char body[96];
     std::snprintf(body, sizeof(body),
         R"("idle_s":%.1f,"px":%d)",
-        idle_for,
-        static_cast<int>(wiggle_pixels_.get() + 0.5f));
+        idle_for, px);
     t.emit("safeguard.anti_afk", body);
+
+    // Visible toast too — user reported "seemed to do nothing" because
+    // the old 2-px net-zero wiggle + key-less pass left no observable
+    // evidence. This confirms every fire on the notification HUD.
+    char toast[64];
+    std::snprintf(toast, sizeof(toast), "idle %.0fs · wiggled %dpx", idle_for, px);
+    notify::info("Anti-AFK", toast);
 
     return Phase::Engaged;
 }
