@@ -131,12 +131,33 @@ void Config::set_float(std::string_view key, float val) {
     set(key, buf);
 }
 
-void Config::erase_all() {
+std::vector<std::pair<std::string, std::string>> Config::snapshot_kv() const {
     std::scoped_lock lk(mtx_);
-    kv_.clear();
-    dirty_ = true;
-    if (ImGui::GetCurrentContext())
-        next_save_at_ = ImGui::GetTime();
+    std::vector<std::pair<std::string, std::string>> out;
+    out.reserve(kv_.size());
+    for (const auto& [k, v] : kv_) out.emplace_back(k, v);
+    return out;
+}
+
+void Config::erase_all() {
+    // Take handlers out from under the lock so callbacks can call set()
+    // without deadlocking on the same mutex.
+    std::vector<ResetHandler> to_run;
+    {
+        std::scoped_lock lk(mtx_);
+        kv_.clear();
+        dirty_ = true;
+        if (ImGui::GetCurrentContext())
+            next_save_at_ = ImGui::GetTime();
+        to_run = reset_handlers_;
+    }
+    for (auto& h : to_run) if (h) h();
+}
+
+void Config::on_reset(ResetHandler h) {
+    if (!h) return;
+    std::scoped_lock lk(mtx_);
+    reset_handlers_.push_back(std::move(h));
 }
 
 }  // namespace dxs

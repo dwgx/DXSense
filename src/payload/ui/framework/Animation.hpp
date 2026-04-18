@@ -87,6 +87,11 @@ public:
         chans_.erase(std::string(key));
     }
 
+    // Clear every channel — used by the factory-reset path so a reveal
+    // animation starts from a clean slate instead of inheriting half-
+    // transitioned widget states.
+    void clear() noexcept { chans_.clear(); }
+
 private:
     std::unordered_map<std::string, Channel> chans_;
 };

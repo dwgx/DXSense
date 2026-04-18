@@ -15,6 +15,7 @@ add_executable(dxs_preview WIN32
     ../payload/ui/framework/Fonts.cpp
     ../payload/ui/framework/Splash.cpp
     ../payload/ui/framework/Theme.cpp
+    ../payload/ui/framework/View3D.cpp
     ../payload/ui/hud/HudManager.cpp
     ../payload/ui/hud/widgets/CrosshairWidget.cpp
     ../payload/ui/hud/widgets/EspWidget.cpp

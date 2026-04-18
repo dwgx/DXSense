@@ -1,154 +1,180 @@
 #include "MatrixPanel.hpp"
 
-#include "core/Localization.hpp"
 #include "game/CameraSampler.hpp"
 #include "ui/framework/Theme.hpp"
+#include "ui/framework/View3D.hpp"
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace dxs {
 
 namespace {
 
-void draw_matrix(const char* title, const float m[16], bool have) {
-    const ImVec2 box_tl = ImGui::GetCursorScreenPos();
-    const float  box_h  = 166.0f;
-    const ImVec2 box_br = box_tl + ImVec2(ImGui::GetContentRegionAvail().x, box_h);
-    theme::draw_surface(ImGui::GetWindowDrawList(), box_tl, box_br,
-                        theme::radius_lg, theme::bg_surface, &theme::info, 2.0f, false);
-    ImGui::SetCursorScreenPos(box_tl + ImVec2(theme::card_pad_x, theme::card_pad_y));
-    theme::section_label(title);
-    ImGui::Dummy(ImVec2(0, theme::space_sm));
+constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
 
-    if (!have) {
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
-        ImGui::TextUnformatted("  unavailable");
-        ImGui::PopStyleColor();
-        ImGui::SetCursorScreenPos(ImVec2(box_tl.x, box_br.y + theme::space_md));
-        return;
+view3d::ImVec3 to_world_m(Vec3 v) {
+    return {
+        v.x * theme::world_to_meter,
+        v.y * theme::world_to_meter,
+        v.z * theme::world_to_meter,
+    };
+}
+
+view3d::ImVec3 to_dir(Vec3 v) {
+    return {v.x, v.y, v.z};
+}
+
+ImU32 unit_color(int kind) {
+    switch (kind) {
+        case 1: return theme::to_u32(theme::bad);
+        case 2: return theme::to_u32(theme::good);
+        default: return theme::to_u32(theme::on_surface_muted);
     }
+}
 
-    if (ImGui::BeginTable(title, 4,
+void draw_matrix_grid(const float m[16], bool active_text) {
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+    if (ImGui::BeginTable("##matrix_view", 4,
                           ImGuiTableFlags_BordersInner |
-                          ImGuiTableFlags_RowBg |
                           ImGuiTableFlags_SizingStretchSame)) {
         for (int r = 0; r < 4; ++r) {
             ImGui::TableNextRow();
             for (int c = 0; c < 4; ++c) {
                 ImGui::TableSetColumnIndex(c);
-                const float v = m[r * 4 + c];
-                ImVec4 col = theme::text_primary;
-                if (std::fabs(v) < 1e-6f)        col = theme::text_faded;
-                else if (std::fabs(v - 1.0f) < 1e-6f) col = theme::good;
-                ImGui::PushStyleColor(ImGuiCol_Text, col);
-                ImGui::Text("%+9.4f", v);
+                ImGui::PushStyleColor(
+                    ImGuiCol_Text,
+                    active_text ? theme::on_surface_variant : theme::on_surface_muted);
+                ImGui::Text("%+7.2f", m[r * 4 + c]);
                 ImGui::PopStyleColor();
             }
         }
         ImGui::EndTable();
     }
-    ImGui::SetCursorScreenPos(ImVec2(box_tl.x, box_br.y + theme::space_md));
+    ImGui::PopStyleVar();
+}
+
+void draw_center_label(const view3d::Canvas& canvas, const char* label) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 text_sz = ImGui::CalcTextSize(label);
+    dl->AddText(
+        ImVec2(
+            canvas.tl.x + (canvas.size.x - text_sz.x) * 0.5f,
+            canvas.tl.y + (canvas.size.y - text_sz.y) * 0.5f),
+        theme::to_u32(theme::on_surface_muted),
+        label);
+}
+
+void draw_vec_row(const char* label, Vec3 v, bool meters) {
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+    ImGui::TextUnformatted(label);
+    ImGui::PopStyleColor();
+    ImGui::TableSetColumnIndex(1);
+    const float s = meters ? theme::world_to_meter : 1.0f;
+    ImGui::Text("(%+.2f, %+.2f, %+.2f)", v.x * s, v.y * s, v.z * s);
 }
 
 }  // namespace
 
 void MatrixPanel::draw() {
     auto snap = CameraSampler::instance().snapshot();
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    theme::section_label("CAMERA SAMPLER");
-    ImGui::Dummy(ImVec2(0, theme::space_xs));
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
-    ImGui::TextWrapped("%s", L("matrix.intro").data());
-    ImGui::PopStyleColor();
-
-    ImGui::Dummy(ImVec2(0, theme::space_md));
-
-    // Status strip — tells the user whether the sampler is hot and how recent
-    // the matrix values are. A dead camera usually means "not in a 3D scene".
-    const double age = snap.sample_time > 0
-        ? CameraSampler::now() - snap.sample_time
-        : -1.0;
-
-    const ImVec2 strip_tl = ImGui::GetCursorScreenPos();
-    const ImVec2 strip_br = strip_tl + ImVec2(ImGui::GetContentRegionAvail().x, 52.0f);
-    theme::draw_surface(dl, strip_tl, strip_br, theme::radius_lg, theme::bg_surface,
-                        snap.camera_ready ? &theme::good : &theme::warn, 3.0f, false);
-    ImGui::SetCursorScreenPos(strip_tl + ImVec2(theme::card_pad_x, theme::space_sm));
-    theme::status_chip(snap.camera_ready ? theme::Status::Good : theme::Status::Warn,
-                       snap.camera_ready ? "Camera ready" : "Camera not bound");
-    ImGui::SameLine(0, theme::space_sm);
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
-    if (age >= 0) {
-        ImGui::Text("sample %d  ·  age %.2fs  ·  %.1f ms",
-                    snap.sample_count, age, snap.last_duration * 1000.0);
-    } else {
-        ImGui::TextUnformatted("waiting for first sample");
-    }
-    ImGui::PopStyleColor();
-    ImGui::SetCursorScreenPos(ImVec2(strip_tl.x, strip_br.y + theme::space_md));
-
-    // Sampler rate control — directly feeds back into CameraSampler.
-    theme::section_label("SAMPLING");
-    ImGui::Dummy(ImVec2(0, theme::space_xs));
-    float hz = CameraSampler::instance().rate_hz();
-    ImGui::SetNextItemWidth(140);
-    if (ImGui::SliderFloat("sample rate (Hz)##matrix", &hz, 1.0f, 60.0f, "%.0f")) {
-        CameraSampler::instance().set_rate_hz(hz);
+    static view3d::OrbitState orbit{};
+    static bool orbit_seeded = false;
+    if (snap.camera_ready && !orbit_seeded) {
+        orbit.center = to_world_m(snap.cam_pos);
+        orbit_seeded = true;
     }
 
-    ImGui::Dummy(ImVec2(0, theme::space_md));
+    const ImVec2 avail  = ImGui::GetContentRegionAvail();
+    const float  gap    = theme::space_lg;
+    const float  left_w = std::max(1.0f, (avail.x - gap) * 0.6f);
 
-    draw_matrix("VIEW",       snap.view.data(), snap.camera_ready);
-    draw_matrix("PROJECTION", snap.proj.data(), snap.camera_ready);
+    if (ImGui::BeginChild("##matrix_left", ImVec2(left_w, avail.y), false)) {
+        const float caption_h = ImGui::GetTextLineHeightWithSpacing();
+        const float canvas_h = std::max(
+            140.0f, ImGui::GetContentRegionAvail().y - caption_h - theme::space_sm);
+        auto canvas = view3d::begin("##matrix_canvas", ImVec2(0.0f, canvas_h), &orbit);
+        view3d::draw_grid_xz(canvas, 30.0f, 2.0f);
+        view3d::draw_axes(canvas);
 
-    if (snap.camera_ready) {
-        theme::section_label("POSE");
-        ImGui::Dummy(ImVec2(0, theme::space_xs));
-
-        // Flat 2-column table: label on the left at a fixed 130 px column,
-        // values stretch right. Far better than leading-space alignment
-        // (Inter is proportional — spaces aren't equal-width, so every
-        // "camera pos   = " etc. lands at a different X and the numbers
-        // never line up visually).
-        if (ImGui::BeginTable("##pose", 2,
-                              ImGuiTableFlags_SizingFixedFit |
-                              ImGuiTableFlags_NoBordersInBody)) {
-            ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 130.0f);
-            ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
-
-            auto row = [](const char* label, const char* fmt, auto... args) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
-                ImGui::TextUnformatted(label);
-                ImGui::PopStyleColor();
-                ImGui::TableSetColumnIndex(1);
-                ImGui::Text(fmt, args...);
-            };
-            row("camera pos",  "(%+.2f, %+.2f, %+.2f)",
-                snap.cam_pos.x, snap.cam_pos.y, snap.cam_pos.z);
-            row("forward",     "(%+.3f, %+.3f, %+.3f)",
-                snap.cam_forward.x, snap.cam_forward.y, snap.cam_forward.z);
-            row("fov (y, deg)","%.2f", snap.fov_y);
-            if (snap.player_ready) {
-                row("local player uid", "%llu",
-                    static_cast<unsigned long long>(snap.player_uid));
-                row("local player pos", "(%+.2f, %+.2f, %+.2f)",
-                    snap.player_pos.x, snap.player_pos.y, snap.player_pos.z);
+        if (snap.camera_ready) {
+            for (const auto& unit : snap.units) {
+                view3d::draw_point(canvas, to_world_m(unit.pos), 3.0f, unit_color(unit.kind));
             }
-            ImGui::EndTable();
+            view3d::draw_frustum(
+                canvas,
+                to_world_m(snap.cam_pos),
+                to_dir(snap.cam_forward),
+                to_dir(snap.cam_up),
+                snap.fov_y * kDegToRad,
+                16.0f / 9.0f,
+                0.3f,
+                30.0f,
+                theme::to_u32(theme::info));
+            if (snap.player_ready) {
+                view3d::draw_line(
+                    canvas,
+                    to_world_m(snap.player_pos),
+                    to_world_m(snap.cam_pos),
+                    IM_COL32(255, 255, 255, 72),
+                    1.0f);
+            }
+        } else {
+            draw_center_label(canvas, "NO CAMERA DATA");
         }
-    }
+        view3d::end(canvas);
 
-    if (!snap.last_error.empty()) {
-        ImGui::Dummy(ImVec2(0, theme::space_sm));
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::warn);
-        ImGui::TextWrapped("last sample note: %s", snap.last_error.c_str());
+        ImGui::Dummy(ImVec2(0.0f, theme::space_xs));
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+        ImGui::Text("yaw %.2f  pitch %.2f  dist %.2fm",
+                    orbit.yaw, orbit.pitch, orbit.dist);
         ImGui::PopStyleColor();
     }
+    ImGui::EndChild();
+
+    ImGui::SameLine(0.0f, gap);
+
+    if (ImGui::BeginChild("##matrix_right", ImVec2(0.0f, avail.y), false)) {
+        theme::section_divider("VIEW MATRIX");
+        ImGui::Dummy(ImVec2(0.0f, theme::space_sm));
+        draw_matrix_grid(snap.view.data(), snap.camera_ready);
+
+        ImGui::Dummy(ImVec2(0.0f, theme::space_md));
+        theme::section_divider("CAMERA");
+        ImGui::Dummy(ImVec2(0.0f, theme::space_sm));
+        if (snap.camera_ready &&
+            ImGui::BeginTable("##matrix_camera", 2,
+                              ImGuiTableFlags_SizingFixedFit |
+                              ImGuiTableFlags_NoBordersInBody)) {
+            ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+            ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+            draw_vec_row("pos", snap.cam_pos, true);
+            draw_vec_row("forward", snap.cam_forward, false);
+            draw_vec_row("up", snap.cam_up, false);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+            ImGui::TextUnformatted("fov_y");
+            ImGui::PopStyleColor();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.2f deg", snap.fov_y);
+            ImGui::EndTable();
+        } else if (!snap.camera_ready) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+            ImGui::TextUnformatted("unavailable");
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::Dummy(ImVec2(0.0f, theme::space_md));
+        theme::section_divider("UNITS");
+        ImGui::Dummy(ImVec2(0.0f, theme::space_sm));
+        ImGui::Text("%d alive", static_cast<int>(snap.units.size()));
+    }
+    ImGui::EndChild();
 }
 
 }  // namespace dxs

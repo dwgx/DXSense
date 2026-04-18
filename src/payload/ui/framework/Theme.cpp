@@ -18,6 +18,28 @@ std::unordered_map<std::string, bool>& dialog_state() {
     return state;
 }
 
+// Tracks which Config keys a widget has already hydrated this session so
+// we only pull from disk once per (key, variable) pair. Subsequent frames
+// skip the read, letting the user's in-memory edits stick. Declared up
+// here (before apply()) so the reset-hook registration can reach it; the
+// definition matches this further down.
+std::unordered_set<std::string>& hydrated_keys();
+
+// Reset reveal — a list-sweep painted over the active content area when
+// the user triggers "Restore defaults". We snapshot the live Config KV
+// map BEFORE erase_all() runs, then sweep a scan-line top→bottom through
+// the list. Rows the line has crossed are struck through and dimmed —
+// the user literally watches every stored value get cleared.
+struct ResetReveal {
+    double start_at = 0.0;
+    bool   active   = false;
+    std::vector<std::pair<std::string, std::string>> entries;
+};
+ResetReveal& reset_reveal() {
+    static ResetReveal r;
+    return r;
+}
+
 }
 
 // ---------------------------------------------------------------------------
@@ -27,6 +49,21 @@ std::unordered_map<std::string, bool>& dialog_state() {
 // 8 control / 4 chip).
 // ---------------------------------------------------------------------------
 void apply() {
+    // Register reset hooks exactly once. apply() only runs at Engine::start,
+    // so no double-registration guard needed beyond the static bool.
+    static bool reset_registered = false;
+    if (!reset_registered) {
+        reset_registered = true;
+        Config::instance().on_reset([] {
+            // Drop cached hydration + in-flight animations. The reveal
+            // itself is triggered by SettingsPanel (it owns the snapshot)
+            // — this hook just cleans up so widgets re-fetch defaults
+            // on the next paint.
+            hydrated_keys().clear();
+            anim::Registry::get().clear();
+        });
+    }
+
     ImGuiStyle& s = ImGui::GetStyle();
 
     s.WindowRounding       = radius_xl;
@@ -55,8 +92,11 @@ void apply() {
     s.ButtonTextAlign      = {0.5f, 0.5f};
     s.SelectableTextAlign  = {0.0f, 0.5f};
 
-    s.CurveTessellationTol       = 1.0f;
-    s.CircleTessellationMaxError = 0.40f;
+    // Tighter tessellation — rounded corners at 10-16 px radius are a
+    // visible feature of the UI, so we spend a handful of extra vertices
+    // per card for pixel-smooth arcs. Apple / Win11 baseline.
+    s.CurveTessellationTol       = 0.75f;
+    s.CircleTessellationMaxError = 0.22f;
 
     ImVec4* c = s.Colors;
     c[ImGuiCol_Text]                  = on_surface;
@@ -127,16 +167,52 @@ void apply() {
 }
 
 // ---------------------------------------------------------------------------
-// Single-rect drop shadow — almost invisible at grayscale, but helps the
-// toast pop-out read as "floating". Kept as a cheap one-rect call; the
-// tonal ladder does the heavy lifting for card separation.
+// Drop shadow — six stacked rects that step out from the surface edges
+// with decaying alpha. Approximates a Gaussian blur without a shader and
+// gives Apple/Win11-style "floats above the page" depth. Cheap enough to
+// spend on every card: ~24 triangles per call.
 // ---------------------------------------------------------------------------
 void draw_shadow(ImVec2 tl, ImVec2 br, float rounding, float /*extent*/) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(tl + ImVec2(0, 2),
-                      br + ImVec2(0, 4),
-                      to_u32({0, 0, 0, 0.40f}),
-                      rounding + 1.0f);
+    // Six layers: inner is narrow + dense, outer is wide + faint. Each
+    // layer is offset straight down so the shadow reads as light coming
+    // from directly above, like every modern OS card UI.
+    struct Layer { float spread; float offset; float alpha; };
+    constexpr Layer layers[] = {
+        {1.0f, 1.0f, 0.20f},
+        {2.0f, 2.0f, 0.16f},
+        {4.0f, 3.0f, 0.12f},
+        {7.0f, 5.0f, 0.08f},
+        {11.0f, 8.0f, 0.05f},
+        {16.0f, 12.0f, 0.03f},
+    };
+    for (const auto& L : layers) {
+        dl->AddRectFilled(
+            ImVec2(tl.x - L.spread, tl.y - L.spread + L.offset),
+            ImVec2(br.x + L.spread, br.y + L.spread + L.offset),
+            to_u32({0.0f, 0.0f, 0.0f, L.alpha}),
+            rounding + L.spread);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Inner highlight — a single 1 px stroke hugging the inside of a rounded
+// rect, in very low-alpha white. The top edge uses brighter alpha than
+// the bottom, which is the "light from above" cue that gives the surface
+// its subtle convex read. Draw this AFTER the fill and AFTER the outer
+// border (if any). Keyword: subtle — it's the difference between "drawn
+// in MS Paint" and "polished app surface".
+// ---------------------------------------------------------------------------
+void draw_inner_highlight(ImVec2 tl, ImVec2 br, float rounding) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    // Top arc — brighter
+    const ImVec2 tl_in{tl.x + 0.5f, tl.y + 0.5f};
+    const ImVec2 br_in{br.x - 0.5f, br.y - 0.5f};
+    dl->AddRect(tl_in, br_in, IM_COL32(255, 255, 255, 20),
+                rounding, ImDrawFlags_RoundCornersTop, 1.0f);
+    // Bottom arc — fainter so the light reads as top-down
+    dl->AddRect(tl_in, br_in, IM_COL32(255, 255, 255, 8),
+                rounding, ImDrawFlags_RoundCornersBottom, 1.0f);
 }
 
 void draw_surface(ImDrawList* dl,
@@ -275,15 +351,56 @@ bool toggle(const char* id, bool* on) {
 }
 
 bool ghost_button(const char* label, ImVec2 size) {
-    ImGui::PushStyleColor(ImGuiCol_Button,        transparent);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, surface_ctn_high);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  surface_ctn_highest);
-    ImGui::PushStyleColor(ImGuiCol_Text,          on_surface_variant);
-    ImGui::PushStyleColor(ImGuiCol_Border,        outline);
-    ImGui::PushStyleVar  (ImGuiStyleVar_FrameBorderSize, 1.0f);
-    const bool clicked = ImGui::Button(label, size);
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(5);
+    // Manual DrawList render — ImGui::Button relies on FramePadding +
+    // RenderTextClipped, which drifts by 1-2 px vertically on PUA icon
+    // glyphs and bold weights because the font's ascender/descender
+    // metrics are asymmetric. CalcTextSize + manual offset is pixel-exact
+    // regardless of font quirks. Matches primary/danger_button behaviour.
+    ImGui::PushID(label);
+
+    const ImVec2 label_sz = ImGui::CalcTextSize(label);
+    const float pad_x = 14.0f;
+    const float pad_y = 7.0f;
+    ImVec2 btn_sz = size;
+    if (btn_sz.x <= 0.0f) btn_sz.x = label_sz.x + pad_x * 2.0f;
+    if (btn_sz.y <= 0.0f) btn_sz.y = label_sz.y + pad_y * 2.0f;
+
+    const ImVec2 tl = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##gb", btn_sz);
+    const bool clicked = ImGui::IsItemClicked();
+    const bool hovered = ImGui::IsItemHovered();
+    const bool held    = ImGui::IsItemActive();
+
+    const float dt = ImGui::GetIO().DeltaTime;
+    char key[40];
+    std::snprintf(key, sizeof(key), "gb.%u", ImGui::GetID("##gb"));
+    auto& hv_ch = anim::channel(std::string(key) + ".h", 0.0f, 0.08f);
+    hv_ch.half_life = 0.08f;
+    const float hv = hv_ch.step(hovered ? 1.0f : 0.0f, dt);
+
+    // Ghost = transparent off, subtle grey hover, slightly darker press.
+    ImVec4 off{0.0f, 0.0f, 0.0f, 0.0f};
+    ImVec4 on  = surface_ctn_high;
+    ImVec4 act = surface_ctn_highest;
+    const ImVec4 bg_base{
+        off.x + (on.x - off.x) * hv,
+        off.y + (on.y - off.y) * hv,
+        off.z + (on.z - off.z) * hv,
+        off.w + (on.w - off.w) * hv};
+    const ImVec4 bg = held ? act : bg_base;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 br = tl + btn_sz;
+    dl->AddRectFilled(tl, br, to_u32(bg), radius_md);
+    dl->AddRect(tl, br, to_u32(outline), radius_md, 0, 1.0f);
+
+    const ImVec4 text_col = hovered ? on_surface : on_surface_variant;
+    const ImVec2 label_pos{
+        tl.x + (btn_sz.x - label_sz.x) * 0.5f,
+        tl.y + (btn_sz.y - label_sz.y) * 0.5f};
+    dl->AddText(label_pos, to_u32(text_col), label);
+
+    ImGui::PopID();
     return clicked;
 }
 
@@ -660,9 +777,6 @@ bool input_int(const char* label, int* v, int step, int step_fast, float width) 
 
 namespace {
 
-// Tracks which Config keys a widget has already hydrated this session so
-// we only pull from disk once per (key, variable) pair. Subsequent frames
-// skip the read, letting the user's in-memory edits stick.
 std::unordered_set<std::string>& hydrated_keys() {
     static std::unordered_set<std::string> s;
     return s;
@@ -897,6 +1011,171 @@ bool segmented(const char* id,
 
     ImGui::PopID();
     return changed;
+}
+
+// ─── Reset reveal ────────────────────────────────────────────────────────
+//
+// Timeline (1.8 s total):
+//   0.00 – 0.15  scrim fades in, title "RESTORING DEFAULTS" appears
+//   0.15 – 1.45  scan-line sweeps top→bottom across the entry list; each
+//                row transitions from bright (pending) to dim + struck
+//                through (cleared) as the line crosses its centre
+//   1.45 – 1.80  scrim fades out; "RESTORED" confirmation pulses
+//
+// All timing is wall-clock driven, so the caller doesn't manage dt.
+
+void trigger_reset_reveal(
+    std::vector<std::pair<std::string, std::string>> snapshot) {
+    auto& rr = reset_reveal();
+    rr.entries = std::move(snapshot);
+    // Cap displayed entries so the list stays within the content card.
+    // Remaining keys are still wiped by erase_all(); the reveal just doesn't
+    // enumerate them past the visible budget.
+    constexpr size_t kMaxVisible = 14;
+    if (rr.entries.size() > kMaxVisible) rr.entries.resize(kMaxVisible);
+    rr.start_at = ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0;
+    rr.active   = true;
+}
+
+void paint_reset_reveal(ImVec2 tl, ImVec2 size) {
+    auto& rr = reset_reveal();
+    if (!rr.active) return;
+
+    const double now = ImGui::GetTime();
+    constexpr double kDur = 1.80;
+    const float t = static_cast<float>(std::min((now - rr.start_at) / kDur, 1.0));
+    if (t >= 1.0f) { rr.active = false; rr.entries.clear(); return; }
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Outer scrim — darkens the area so the list reads on top of whatever
+    // panel was active. Envelope: ramp up in 0.15, hold, ramp down in 0.35.
+    float scrim_a = 0.0f;
+    if (t < 0.15f)       scrim_a = anim::ease_out_cubic(t / 0.15f);
+    else if (t > 0.65f)  scrim_a = anim::ease_out_cubic(std::max(0.0f, 1.0f - (t - 0.65f) / 0.35f));
+    else                 scrim_a = 1.0f;
+
+    dl->AddRectFilled(tl, tl + size,
+        IM_COL32(8, 8, 10, static_cast<int>(scrim_a * 0.78f * 255.0f)),
+        radius_lg);
+
+    // Layout budget. Title + subtitle sit at the top, list fills the rest.
+    constexpr float pad_x    = 32.0f;
+    constexpr float pad_y    = 28.0f;
+    constexpr float title_h  = 28.0f;
+    constexpr float gap_h    = 20.0f;
+    constexpr float entry_h  = 22.0f;
+    const ImVec2 inner_tl{tl.x + pad_x,                  tl.y + pad_y};
+    const ImVec2 inner_br{tl.x + size.x - pad_x,         tl.y + size.y - pad_y};
+    const ImVec2 inner_sz = inner_br - inner_tl;
+
+    ImFont* font = ImGui::GetFont();
+
+    // ── Title ──
+    const char* caption = "RESTORING DEFAULTS";
+    const float title_sz = font->FontSize * 1.25f;
+    const ImVec2 cap_sz  = font->CalcTextSizeA(title_sz, FLT_MAX, 0.0f, caption);
+    const ImVec2 cap_pos{
+        inner_tl.x, inner_tl.y + (title_h - cap_sz.y) * 0.5f};
+    dl->AddText(font, title_sz, cap_pos,
+        IM_COL32(245, 245, 245, static_cast<int>(scrim_a * 255.0f)), caption);
+
+    // Ruler under title.
+    const float ruler_y = inner_tl.y + title_h + 6.0f;
+    dl->AddLine(
+        ImVec2(inner_tl.x, ruler_y),
+        ImVec2(inner_br.x, ruler_y),
+        IM_COL32(180, 180, 180, static_cast<int>(scrim_a * 90.0f)),
+        1.0f);
+
+    // ── List area ──
+    const float list_top    = ruler_y + gap_h;
+    const float list_bottom = inner_br.y - 30.0f;   // reserve for footer
+    const float list_h      = list_bottom - list_top;
+    const size_t n          = rr.entries.size();
+    const float used_h      = std::min(list_h, n * entry_h);
+
+    // Sweep — activated between t=0.15 and t=0.80 (65% of total).
+    const float sweep_t =
+        (t <= 0.15f) ? 0.0f :
+        (t >= 0.80f) ? 1.0f :
+        (t - 0.15f) / 0.65f;
+    const float sweep_y =
+        list_top + used_h * anim::ease_out_cubic(sweep_t);
+
+    // Draw rows.
+    for (size_t i = 0; i < n; ++i) {
+        const float row_top = list_top + entry_h * static_cast<float>(i);
+        const float row_mid = row_top + entry_h * 0.5f;
+        if (row_top > list_bottom) break;
+
+        const bool  crossed   = row_mid < sweep_y;
+        const float row_alpha = scrim_a * (crossed ? 0.32f : 0.92f);
+
+        // Layout: key on left, value right-aligned.
+        const auto& [key, value] = rr.entries[i];
+        const char* kptr   = key.c_str();
+        const char* vptr   = value.c_str();
+        const float kwidth = font->FontSize;
+
+        const ImVec2 k_sz = font->CalcTextSizeA(kwidth, FLT_MAX, 0.0f, kptr);
+        const ImVec2 v_sz = font->CalcTextSizeA(kwidth, FLT_MAX, 0.0f, vptr);
+        const ImVec2 k_pos{inner_tl.x,               row_top + (entry_h -k_sz.y) * 0.5f};
+        const ImVec2 v_pos{inner_br.x - v_sz.x,      row_top + (entry_h -v_sz.y) * 0.5f};
+
+        const ImU32 k_col = IM_COL32(235, 235, 235,
+            static_cast<int>(row_alpha * 255.0f));
+        const ImU32 v_col = IM_COL32(170, 170, 170,
+            static_cast<int>(row_alpha * 255.0f));
+
+        dl->AddText(font, kwidth, k_pos, k_col, kptr);
+        dl->AddText(font, kwidth, v_pos, v_col, vptr);
+
+        // Strike-through once the sweep has crossed the row.
+        if (crossed) {
+            const float sx0 = k_pos.x;
+            const float sx1 = v_pos.x + v_sz.x;
+            const ImU32 scol = IM_COL32(220, 220, 220,
+                static_cast<int>(scrim_a * 180.0f));
+            dl->AddLine(ImVec2(sx0, row_mid), ImVec2(sx1, row_mid), scol, 1.0f);
+        }
+    }
+
+    // Sweep line — bright, slightly glowing.
+    if (sweep_t > 0.0f && sweep_t < 1.0f && n > 0) {
+        const int gcount = 4;
+        for (int g = gcount; g > 0; --g) {
+            const float w = static_cast<float>(g);
+            const int   a = static_cast<int>(scrim_a * (28.0f / g));
+            dl->AddRectFilled(
+                ImVec2(inner_tl.x, sweep_y - w),
+                ImVec2(inner_br.x, sweep_y + w),
+                IM_COL32(255, 255, 255, a));
+        }
+        dl->AddRectFilled(
+            ImVec2(inner_tl.x, sweep_y - 0.5f),
+            ImVec2(inner_br.x, sweep_y + 0.5f),
+            IM_COL32(255, 255, 255, static_cast<int>(scrim_a * 255.0f)));
+    }
+
+    // ── Footer caption ──
+    // Before the sweep completes — "N entries to clear"; after — "RESTORED".
+    const bool done = sweep_t >= 1.0f;
+    char footer[64];
+    if (done) {
+        std::snprintf(footer, sizeof(footer), "RESTORED");
+    } else {
+        std::snprintf(footer, sizeof(footer),
+            "%zu entr%s queued", n, n == 1 ? "y" : "ies");
+    }
+    const float f_sz   = font->FontSize * 0.95f;
+    const ImVec2 f_dim = font->CalcTextSizeA(f_sz, FLT_MAX, 0.0f, footer);
+    const ImVec2 f_pos{
+        inner_tl.x + (inner_sz.x - f_dim.x) * 0.5f,
+        inner_br.y - f_dim.y};
+    const ImU32 f_col = IM_COL32(230, 230, 230,
+        static_cast<int>(scrim_a * (done ? 255.0f : 160.0f)));
+    dl->AddText(font, f_sz, f_pos, f_col, footer);
 }
 
 // ─── Section divider ─────────────────────────────────────────────────────

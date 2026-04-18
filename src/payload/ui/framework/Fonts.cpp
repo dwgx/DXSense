@@ -11,6 +11,12 @@
 namespace dxs::fonts {
 
 namespace {
+ImFont* g_splash_title = nullptr;
+}
+
+ImFont* splash_title() { return g_splash_title; }
+
+namespace {
 
 std::filesystem::path windir_font(const wchar_t* name) {
     wchar_t buf[MAX_PATH]{};
@@ -120,8 +126,29 @@ void load() {
             fluent.string().c_str(), 15.0f, &cfg_icon, dxs::icons::range());
     }
 
+    // --- Splash hero font -----------------------------------------------------
+    // Rasterise the splash title at 96 px directly instead of upscaling the
+    // 15-px UI font 5×. Upscaling a 15-px glyph atlas by 5× is bilinear —
+    // edges look chewy. Native 96 px keeps every stroke razor-sharp.
+    // Latin + a tiny glyph set (DXSENSE, BYE, THX · FOR USING) is all we
+    // need here, so the atlas cost is minor (< 200 KB).
+    {
+        static const ImWchar splash_range[] = {
+            0x0020, 0x007E,   // basic Latin + space + ASCII punctuation
+            0x00B7, 0x00B7,   // middle dot (·)
+            0,
+        };
+        ImFontConfig cfg_splash;
+        cfg_splash.OversampleH        = 3;
+        cfg_splash.OversampleV        = 2;
+        cfg_splash.PixelSnapH         = true;
+        cfg_splash.RasterizerMultiply = 1.00f;
+        g_splash_title = io.Fonts->AddFontFromFileTTF(
+            base_path.string().c_str(), 96.0f, &cfg_splash, splash_range);
+    }
+
     io.Fonts->Build();
-    DXS_INFO("Fonts: {} + {} + {} ({} x {} atlas)",
+    DXS_INFO("Fonts: {} + {} + {} + splash96 ({} x {} atlas)",
              base_path.filename().string(),
              cjk.empty() ? "-" : cjk.filename().string(),
              std::filesystem::exists(fluent) ? "SegoeIcons" : "-",

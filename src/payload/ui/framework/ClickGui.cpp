@@ -176,9 +176,14 @@ void ClickGui::draw() {
     const ImVec2 win_tl  = ImGui::GetWindowPos();
     const ImVec2 win_sz  = ImGui::GetWindowSize();
 
-    // Subtle single-rect drop shadow — just enough to imply "window above
-    // game" without painting dark halos on bright gameplay.
+    // Multi-layer drop shadow — stepped out so the root window reads as
+    // floating above the game. Six layers, decaying alpha; feels
+    // unmistakably Apple/Win11 without costing a shader.
     theme::draw_shadow(win_tl, win_tl + win_sz, theme::radius_xl, 0.0f);
+
+    // Inner highlight on the root frame. Drawn AFTER ImGui's own border
+    // paints so the 1-px white rim lands just inside of it.
+    theme::draw_inner_highlight(win_tl, win_tl + win_sz, theme::radius_xl);
 
     // Hairline divider between header and body, and between sidebar and
     // content. These are the ONLY chrome lines in the window — everything
@@ -403,11 +408,21 @@ void ClickGui::draw_sidebar() {
         const float y = sel_bar_y_ch_.step(sel_y, dt);
         const float h = sel_bar_h_ch_.step(sel_h, dt);
         const ImVec2 wp = ImGui::GetWindowPos();
+        // Inset the indicator bar within the row so it visually "floats"
+        // — previously the 8 px inset matched theme::space_sm but with
+        // tighter rows the bar ran right up against the hover rect's
+        // top/bottom edges. A fixed 10 px inset keeps it comfortable at
+        // any row height.
+        constexpr float k_bar_inset = 10.0f;
         dl->AddRectFilled(
-            ImVec2(wp.x + theme::space_sm - 4.0f, y + theme::space_sm),
-            ImVec2(wp.x + theme::space_sm - 2.0f, y + h - theme::space_sm),
+            ImVec2(wp.x + theme::space_sm - 4.0f, y + k_bar_inset),
+            ImVec2(wp.x + theme::space_sm - 2.0f, y + h - k_bar_inset),
             theme::to_u32(theme::on_surface), 1.0f);
     }
+
+    // Symmetric bottom breathing room — mirror of the top Dummy so the
+    // last sidebar row's hover highlight never runs into the child edge.
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
 
     ImGui::EndChild();
     ImGui::PopStyleColor();
@@ -418,8 +433,13 @@ void ClickGui::draw_content() {
     // Content card — visibly brighter than the dark sidebar/root so the
     // separation is obvious. Full rounded corners + hairline border give
     // it the "floating sheet" look of a premium settings UI.
-    const float pad_x = 48.0f;                                // generous left margin
-    const float pad_y = theme::space_xxl;                      // 32 px top
+    //
+    // Padding: 56 px left/right, 44 px top, 40 px bottom. Generous enough
+    // that the title doesn't crowd the card corner and panel content has
+    // a clear right-hand gutter (the thing that previously looked like
+    // content was running into the border).
+    constexpr float pad_x = 56.0f;
+    constexpr float pad_y = 44.0f;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pad_x, pad_y));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::transparent);
     ImGui::PushStyleColor(ImGuiCol_Border, theme::transparent);
@@ -451,6 +471,13 @@ void ClickGui::draw_content() {
             content_tl, content_tl + content_sz,
             theme::to_u32(content_border),
             theme::radius_lg, 0, 1.0f);
+
+        // 1 px top-biased inner highlight — the surface now reads as
+        // "lit from above" instead of a flat sticker. Very subtle; you'd
+        // have to squint to notice it on its own, but the room feels
+        // different with it off.
+        theme::draw_inner_highlight(
+            content_tl, content_tl + content_sz, theme::radius_lg);
     }
 
     IPanel* active = nullptr;
@@ -485,6 +512,10 @@ void ClickGui::draw_content() {
         ImGui::TextUnformatted("No panel selected.");
         ImGui::PopStyleColor();
     }
+
+    // Paint the reset reveal on top of whatever the active panel drew.
+    // No-op when no reveal is in flight.
+    theme::paint_reset_reveal(ImGui::GetWindowPos(), ImGui::GetWindowSize());
 
     ImGui::EndChild();
     ImGui::PopStyleColor(2);

@@ -19,6 +19,7 @@ add_library(dxsense SHARED
     ui/framework/Fonts.cpp
     ui/framework/Splash.cpp
     ui/framework/Theme.cpp
+    ui/framework/View3D.cpp
     ui/hud/HudManager.cpp
     ui/hud/widgets/CrosshairWidget.cpp
     ui/hud/widgets/EspWidget.cpp

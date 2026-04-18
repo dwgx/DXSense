@@ -1,6 +1,8 @@
 #include "Splash.hpp"
 
 #include "Animation.hpp"
+#include "ClickGui.hpp"
+#include "Fonts.hpp"
 #include "Theme.hpp"
 
 #include <imgui.h>
@@ -9,7 +11,20 @@
 #include <cmath>
 #include <cstdio>
 
-#include "ClickGui.hpp"
+// ═════════════════════════════════════════════════════════════════════════
+// Splash — two modes, one renderer.
+//
+//   begin()       : boot cinematic, auto-deactivates after kIntroDuration
+//                    or on Esc/Space/Click.
+//   begin_exit()  : farewell; stays active FOREVER until the DLL unloads.
+//                    Holding the screen opaque is the whole point — if we
+//                    timed out like the intro, HUD/ClickGui would paint
+//                    through during the tail end of the eject sleep and
+//                    "flash" back. Never let that happen.
+//
+// Intro envelope:   fade-in (0–20%) → hold (20–80%) → fade-out (80–100%)
+// Exit  envelope:   fade-in (0–15%) → hold forever (alpha=1)
+// ═════════════════════════════════════════════════════════════════════════
 
 namespace dxs::splash {
 
@@ -17,12 +32,28 @@ namespace {
 double g_start_at = 0.0;
 bool   g_begun    = false;
 bool   g_is_exit  = false;
-// Intro is a full cinematic; exit is just a short farewell so the user
-// isn't staring at black for five seconds while the DLL unloads.
 constexpr double kIntroDuration = 5.0;
-constexpr double kExitDuration  = 2.2;
-double current_duration() { return g_is_exit ? kExitDuration : kIntroDuration; }
+constexpr double kExitFadeIn    = 0.30;   // seconds; rest of the exit holds
+
+float intro_bg_alpha(float t) noexcept {
+    if (t < 0.2f) return anim::ease_out_cubic(t / 0.2f);
+    if (t > 0.8f) return anim::ease_out_cubic(1.0f - (t - 0.8f) / 0.2f);
+    return 1.0f;
 }
+float intro_text_alpha(float t, float bg_alpha) noexcept {
+    if (t > 0.25f && t <= 0.8f) {
+        const float tt = (t - 0.25f) / 0.55f;
+        return (tt < 0.3f) ? anim::ease_out_cubic(tt / 0.3f) : 1.0f;
+    }
+    if (t > 0.8f) return bg_alpha;
+    return 0.0f;
+}
+float intro_sub_alpha(float t, float text_alpha) noexcept {
+    if (t > 0.4f && t <= 0.8f) return anim::ease_out_cubic((t - 0.4f) / 0.4f);
+    if (t > 0.8f) return text_alpha;
+    return 0.0f;
+}
+}  // namespace
 
 void begin() {
     g_begun    = true;
@@ -39,60 +70,51 @@ void begin_exit() {
 
 bool active() {
     if (!g_begun) return false;
+    // Exit mode holds indefinitely — the DLL unloading is what ends it,
+    // not the clock. See the top-of-file comment.
+    if (g_is_exit) return true;
     if (g_start_at == 0.0) return true;
     const double now = ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0;
-    return now - g_start_at < current_duration();
+    return now - g_start_at < kIntroDuration;
 }
 
-bool is_exit() {
-    return g_is_exit;
-}
+bool is_exit() { return g_is_exit; }
 
 void draw() {
     if (!g_begun || !ImGui::GetCurrentContext()) return;
     const double now = ImGui::GetTime();
     if (g_start_at == 0.0) g_start_at = now;
-    
-    // Allow skipping the intro
-    if (!g_is_exit && (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsMouseClicked(0))) {
-        g_begun = false; 
+
+    // Intro can be skipped; exit cannot (we're mid-teardown).
+    if (!g_is_exit &&
+        (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+         ImGui::IsKeyPressed(ImGuiKey_Space)  ||
+         ImGui::IsMouseClicked(0))) {
+        g_begun = false;
         return;
     }
 
     const double elapsed = now - g_start_at;
-    const double duration = current_duration();
-    if (elapsed > duration) { g_begun = false; return; }
 
-    const float t = static_cast<float>(elapsed / duration);
-
-    float bg_alpha = 0.0f;
-    float text_alpha = 0.0f;
-    float dynamic_scale = 1.0f;
+    // Compute this frame's envelope. Intro uses t in [0,1]; exit uses the
+    // seconds-elapsed directly and saturates after kExitFadeIn.
+    float bg_alpha, text_alpha, sub_alpha;
 
     if (!g_is_exit) {
-        // Standard entrance
-        if (t < 0.2f) bg_alpha = anim::ease_out_cubic(t / 0.2f);
-        else if (t > 0.8f) bg_alpha = anim::ease_out_cubic(1.0f - ((t - 0.8f) / 0.2f));
-        else bg_alpha = 1.0f; 
-
-        if (t > 0.25f && t <= 0.8f) {
-            float text_t = (t - 0.25f) / 0.55f;
-            text_alpha = (text_t < 0.3f) ? anim::ease_out_cubic(text_t / 0.3f) : 1.0f;
-        } else if (t > 0.8f) text_alpha = bg_alpha;
-
-        if (t > 0.25f) dynamic_scale = 1.0f + (0.05f * anim::ease_out_cubic((t - 0.25f) / 0.75f));
+        if (elapsed > kIntroDuration) { g_begun = false; return; }
+        const float t = static_cast<float>(elapsed / kIntroDuration);
+        bg_alpha   = intro_bg_alpha(t);
+        text_alpha = intro_text_alpha(t, bg_alpha);
+        sub_alpha  = intro_sub_alpha(t, text_alpha);
     } else {
-        // Uninject Exit Sequence: Game fades instantly to black, text pulses out
-        if (t < 0.2f) bg_alpha = anim::ease_out_cubic(t / 0.2f);
-        else if (t > 0.8f) bg_alpha = anim::ease_out_cubic(1.0f - ((t - 0.8f) / 0.2f));
-        else bg_alpha = 1.0f; 
-        
-        if (t > 0.2f && t <= 0.8f) {
-            float text_t = (t - 0.2f) / 0.6f;
-            text_alpha = (text_t < 0.3f) ? anim::ease_out_cubic(text_t / 0.3f) : 1.0f;
-        } else if (t > 0.8f) text_alpha = bg_alpha;
-
-        dynamic_scale = 1.05f - (0.05f * anim::ease_out_cubic(t));
+        // Exit — fade to opaque quickly, then hold. No fade-out because the
+        // DLL can unload at any moment; a visible fade-out would only create
+        // a gap where HUD paints through.
+        const float s = static_cast<float>(
+            std::min(elapsed / kExitFadeIn, 1.0));
+        bg_alpha   = anim::ease_out_cubic(s);
+        text_alpha = bg_alpha;   // same envelope — keeps composition simple
+        sub_alpha  = bg_alpha;
     }
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -106,7 +128,7 @@ void draw() {
         ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoInputs |
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoBringToFrontOnFocus;
-        
+
     ImGui::Begin("##dxs_splash", nullptr, flags);
 
     ImDrawList*  dl     = ImGui::GetWindowDrawList();
@@ -114,67 +136,66 @@ void draw() {
     const ImVec2 ws     = ImGui::GetWindowSize();
     const ImVec2 centre = wp + ws * 0.5f;
 
-    // Pitch black theater curtain
-    // Pure black covers the game screen to set the cinematic mood
-    dl->AddRectFilled(wp, wp + ws, IM_COL32(0, 0, 0, static_cast<int>(bg_alpha * 255.0f)));
+    dl->AddRectFilled(wp, wp + ws,
+        IM_COL32(0, 0, 0, static_cast<int>(bg_alpha * 255.0f)));
 
-    if (text_alpha > 0.0f) {
-        // Calculate layout for typography
-        const char* text       = g_is_exit ? "BYE" : "DXSENSE";
-        const float font_scale = 5.0f; 
-        ImFont* font           = ImGui::GetFont();
-        const float font_size  = font->FontSize * font_scale;
-        const ImVec2 text_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text);
-        
-        // Dynamic slow zoom effect: text very subtly scales up as time passes
-        // giving it an alive, breathing movie feel.
-        dynamic_scale = 1.0f;
-        if (t > 0.25f) {
-             const float anim_progress = (t - 0.25f) / 0.75f; 
-             dynamic_scale = 1.0f + (0.05f * anim::ease_out_cubic(anim_progress));
-        }
-        
-        const float render_font_size = font_size * dynamic_scale;
-        const ImVec2 scaled_text_size = font->CalcTextSizeA(render_font_size, FLT_MAX, 0.0f, text);
-        ImVec2 text_pos = centre - ImVec2(scaled_text_size.x * 0.5f, scaled_text_size.y * 0.5f);
+    if (text_alpha <= 0.0f) {
+        ImGui::End();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+        return;
+    }
 
-        // Crisp white text with a slight glow
-        ImVec4 text_col = theme::on_surface;
-        text_col.w *= text_alpha * 0.85f; // Soften the pure white slightly
-        
-        ImVec4 glow_col = theme::primary_edge;
-        glow_col.w *= text_alpha * 0.5f;
+    // Typography — hero font is rasterised at 96 px natively (see
+    // fonts::splash_title) so no upscaling / bilinear mush. UI font stays
+    // for the subtitle.
+    const char* title = g_is_exit ? "BYE" : "DXSENSE";
+    const char* sub   = g_is_exit ? "T H X   ·   F O R   U S I N G"
+                                  : "S Y S T E M   I N I T I A L I Z E D";
 
-        // Draw multiple offset layers for cinematic ambient blur/glow around text
-        const float blur_rad = 6.0f * dynamic_scale;
-        for (int ix = -1; ix <= 1; ++ix) {
-            for (int iy = -1; iy <= 1; ++iy) {
-                if (ix == 0 && iy == 0) continue;
-                dl->AddText(font, render_font_size, text_pos + ImVec2(ix * blur_rad, iy * blur_rad), theme::to_u32(glow_col), text);
-            }
-        }
+    ImFont* hero_font = fonts::splash_title();
+    if (!hero_font) hero_font = ImGui::GetFont();   // fallback if atlas failed
+    ImFont* ui_font   = ImGui::GetFont();
+    const float hero_sz_native = hero_font->FontSize;   // native raster size
 
-        dl->AddText(font, render_font_size, text_pos, theme::to_u32(text_col), text);
+    float breath = 1.0f;
+    if (!g_is_exit && elapsed > 0.25 * kIntroDuration) {
+        const float progress = static_cast<float>(
+            (elapsed - 0.25 * kIntroDuration) /
+            (0.75 * kIntroDuration));
+        breath = 1.0f + 0.04f * anim::ease_out_cubic(progress);
+    }
+    const float render_sz = hero_sz_native * breath;
+    const ImVec2 title_sz =
+        hero_font->CalcTextSizeA(render_sz, FLT_MAX, 0.0f, title);
+    const ImVec2 title_pos = centre - ImVec2(title_sz.x * 0.5f, title_sz.y * 0.5f);
 
-        // Subtitle that fades in even slower to create a multi-stage reveal
-        const char* sub        = g_is_exit ? "T H X   ·   F O R   U S I N G" : "S Y S T E M   I N I T I A L I Z E D";
-        const float sub_scale  = 1.0f;
-        const float sub_size   = font->FontSize * sub_scale * dynamic_scale;
-        const ImVec2 sub_bounds = font->CalcTextSizeA(sub_size, FLT_MAX, 0.0f, sub);
-        ImVec2 sub_pos         = centre + ImVec2(-sub_bounds.x * 0.5f, scaled_text_size.y * 0.5f + theme::space_xl);
-        
+    // A single soft halo instead of the old 8-sample cross. One offset at
+    // large radius reads as atmospheric glow without smearing glyph edges.
+    ImVec4 glow = theme::primary_edge;
+    glow.w *= text_alpha * 0.28f;
+    dl->AddText(hero_font, render_sz,
+        title_pos + ImVec2(0, 3),
+        theme::to_u32(glow), title);
+
+    ImVec4 title_col = theme::on_surface;
+    title_col.w *= text_alpha;
+    dl->AddText(hero_font, render_sz, title_pos,
+        theme::to_u32(title_col), title);
+
+    if (sub_alpha > 0.0f) {
+        // Subtitle uses the UI font at its native size — spacing out the
+        // letters ("T H X · F O R · U S I N G") is the readability trick,
+        // not font scaling.
+        const float sub_sz = ui_font->FontSize;
+        const ImVec2 sub_bounds =
+            ui_font->CalcTextSizeA(sub_sz, FLT_MAX, 0.0f, sub);
+        const ImVec2 sub_pos = centre + ImVec2(
+            -sub_bounds.x * 0.5f,
+            title_sz.y * 0.5f + theme::space_xl);
         ImVec4 sub_col = theme::on_surface_muted;
-        
-        float sub_alpha = 0.0f;
-        if (!g_is_exit) {
-            if (t > 0.4f && t <= 0.8f) sub_alpha = anim::ease_out_cubic((t - 0.4f) / 0.4f);
-            else if (t > 0.8f) sub_alpha = text_alpha;
-        } else {
-            sub_alpha = text_alpha;
-        }
-        
-        sub_col.w *= sub_alpha * 0.75f;
-        dl->AddText(font, sub_size, sub_pos, theme::to_u32(sub_col), sub);
+        sub_col.w *= sub_alpha * 0.82f;
+        dl->AddText(ui_font, sub_sz, sub_pos, theme::to_u32(sub_col), sub);
     }
 
     ImGui::End();

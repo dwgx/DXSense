@@ -1,10 +1,12 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace dxs {
 
@@ -35,6 +37,21 @@ public:
 
     void erase_all();                              // nuke everything (Settings panel)
 
+    // Snapshot the current persisted key/value map. Used by the Settings
+    // panel's "Restore defaults" reveal so the animation can list exactly
+    // which keys are about to be wiped — taken BEFORE erase_all() runs.
+    std::vector<std::pair<std::string, std::string>> snapshot_kv() const;
+
+    // Broadcast: subsystems register a callback to reset their in-memory
+    // state when erase_all() runs. Without this, erasing the file leaves
+    // stale language / hydrated-widget / panel state in memory.
+    //
+    // Handlers run in registration order, on the caller's thread (which is
+    // always the render thread — Settings panel lives there), AFTER the
+    // kv map has been cleared and the flush scheduled.
+    using ResetHandler = std::function<void()>;
+    void on_reset(ResetHandler h);
+
     std::filesystem::path path() const { return path_; }
 
 private:
@@ -45,6 +62,7 @@ private:
     std::filesystem::path    path_;
     bool                     dirty_       = false;
     double                   next_save_at_= 0.0;
+    std::vector<ResetHandler> reset_handlers_;
 };
 
 }  // namespace dxs

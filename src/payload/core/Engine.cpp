@@ -29,6 +29,14 @@ void Engine::start(void* this_module) {
     if (running_.exchange(true)) return;
     module_ = this_module;
 
+    // Arm the splash FIRST. It's just a pair of flags — no ImGui context
+    // needed — so it's safe to call before the backend is hooked. This
+    // closes the race where the game's render thread calls Present between
+    // Dx11Backend::install returning and splash::begin() being called;
+    // without this, the first hooked Present draws the HUD over the game
+    // for a visible instant.
+    splash::begin();
+
     Logger::instance().init(L"DXSense.log");
     DXS_INFO("DXSense starting (module=0x{:p})", module_);
 
@@ -110,9 +118,6 @@ void Engine::start(void* this_module) {
     // Camera sampler runs on its OWN thread so Python GIL contention never
     // stalls the render pipeline. Must start after PythonBridge is ready.
     CameraSampler::instance().start();
-
-    // Kick the boot splash — renders on the very next frame for ~1.4 s.
-    splash::begin();
 }
 
 void Engine::attach_window(HWND hwnd) {

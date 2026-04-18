@@ -137,7 +137,11 @@ void HudManager::draw() {
     const float dt          = ImGui::GetIO().DeltaTime;
     const float gui_alpha   = ClickGui::instance().current_alpha();
     const float fade_target = edit_ ? 1.0f : std::clamp(1.0f - gui_alpha, 0.0f, 1.0f);
-    fade_ch_.half_life      = 0.05f;
+    // Asymmetric timing: snap-out on ClickGui open, ease-in on ClickGui
+    // close. The lazy ease-in also hides the one-frame gap between the
+    // farewell splash clearing and the HUD starting to repaint — that's
+    // the "flash" the user spotted.
+    fade_ch_.half_life      = (fade_target > fade_alpha_) ? 0.22f : 0.05f;
     fade_alpha_             = fade_ch_.step(fade_target, dt);
 
     // Fully faded out and staying that way — skip the draw entirely so the

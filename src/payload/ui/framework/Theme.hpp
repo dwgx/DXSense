@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <imgui.h>
 
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace dxs::theme {
 
@@ -184,6 +187,11 @@ inline ImVec4 with_alpha(ImVec4 c, float a) { c.w *= a; return c; }
 
 void draw_shadow(ImVec2 tl, ImVec2 br, float rounding, float extent = 8.0f);
 
+// 1 px inner rim — brighter on top, fainter on bottom. The "light from
+// above" highlight that makes a flat rect read as a surface rather than
+// a sticker. Apply AFTER the fill and AFTER any outer border.
+void draw_inner_highlight(ImVec2 tl, ImVec2 br, float rounding);
+
 void draw_surface(ImDrawList* dl,
                   ImVec2 tl,
                   ImVec2 br,
@@ -322,5 +330,17 @@ bool segmented(const char* id,
 // Section divider + caption — the standard way to group controls inside a
 // panel. Draws a hairline rule with the caption floated above it.
 void section_divider(const char* caption);
+
+// Reset reveal — painted over the current content area when the user hits
+// "Restore defaults". Instead of silently wiping, we snapshot the live
+// Config state BEFORE erasing it and display each (key, value) in a scan-
+// line that sweeps top→bottom; rows the line has crossed are struck
+// through, signalling they've been cleared. Settings panel calls
+// trigger_reset_reveal(snapshot) right before erase_all().
+void trigger_reset_reveal(
+    std::vector<std::pair<std::string, std::string>> snapshot);
+
+// Painted by ClickGui::draw_content once per frame; no-op when idle.
+void paint_reset_reveal(ImVec2 tl, ImVec2 size);
 
 }  // namespace dxs::theme

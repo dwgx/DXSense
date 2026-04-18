@@ -257,6 +257,9 @@ const auto& index() {
 
 Localization::Localization() {
     lang_ = Config::instance().get("i18n.language", "en");
+    // Pull back to the ship-default on erase_all so "Restore defaults"
+    // actually swaps the UI language instead of leaving zh-CN cached.
+    Config::instance().on_reset([this] { lang_ = "en"; });
 }
 
 Localization& Localization::instance() {

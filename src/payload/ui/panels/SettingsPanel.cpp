@@ -33,28 +33,21 @@ void SettingsPanel::draw() {
     theme::section_label(L("settings.language"));
     ImGui::Dummy(ImVec2(0, theme::space_xs));
 
-    struct Opt { const char* code; const char* label; };
-    constexpr Opt langs[] = {
-        {"en",    "English"},
-        {"zh-CN", "\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87"},
+    // Segmented selector — the two languages are mutex options, and the
+    // previous pair of styled ImGui::Buttons suffered from the native
+    // text-baseline drift (ENG / 简体 sat a couple pixels low of centre).
+    // theme::segmented renders labels with manual CalcTextSize centring
+    // and glides a silver pill between options.
+    const char* const lang_opts[] = {
+        "English",
+        "\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87",
     };
-
-    const auto current = std::string(loc.language());
-    for (const Opt& o : langs) {
-        const bool active = (current == o.code);
-        ImGui::PushStyleColor(ImGuiCol_Button,
-                              active ? theme::surface_ctn_highest : theme::surface_ctn);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                              active ? theme::surface_ctn_highest : theme::surface_ctn_high);
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, theme::surface_ctn_highest);
-        if (ImGui::Button(o.label, ImVec2(120, 30))) {
-            loc.set_language(o.code);
-            ClickGui::instance().toast(std::string(o.label) + " \xe2\x9c\x93");
-        }
-        ImGui::PopStyleColor(3);
-        ImGui::SameLine();
+    constexpr const char* const lang_codes[] = {"en", "zh-CN"};
+    int sel = (loc.language() == "zh-CN") ? 1 : 0;
+    if (theme::segmented("##lang", lang_opts, 2, &sel)) {
+        loc.set_language(lang_codes[sel]);
+        ClickGui::instance().toast(std::string(lang_opts[sel]) + " \xe2\x9c\x93");
     }
-    ImGui::NewLine();
 
     ImGui::Dummy(ImVec2(0, theme::space_lg));
     ImGui::Separator();
@@ -98,9 +91,14 @@ void SettingsPanel::draw() {
         "Cancel",
         theme::DialogKind::Danger,
     })) {
+        // Snapshot the live KV BEFORE erase_all so the reveal can enumerate
+        // what was cleared. Then wipe, flush, and hand the snapshot to the
+        // reveal — widgets will re-hydrate from the empty config on the
+        // next paint while the scan-line animation plays over top.
+        auto before = cfg.snapshot_kv();
         cfg.erase_all();
         cfg.flush();
-        ClickGui::instance().toast("Settings restored to defaults");
+        theme::trigger_reset_reveal(std::move(before));
     }
 
     ImGui::SameLine(0, theme::space_md);
