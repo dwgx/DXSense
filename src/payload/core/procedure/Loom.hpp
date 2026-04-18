@@ -55,6 +55,12 @@ public:
     // seconds (ImGui::GetIO().DeltaTime).
     void advance(float dt);
 
+    // Re-read every Pin's value + every Slot's engaged flag from Config.
+    // Used by ProfileManager after a profile load: the file has been
+    // merged into Config, but Pin instances still hold their pre-load
+    // cached values; this walks them and refreshes.
+    void rehydrate();
+
     // Driver registration. Loom emits Intents into these after advance().
     // Drivers are std::function so they're decoupled from concrete
     // subsystems — tests, preview, and the real engine all wire their own.

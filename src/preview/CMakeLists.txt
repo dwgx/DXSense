@@ -8,6 +8,7 @@ add_executable(dxs_preview WIN32
     ../payload/core/RemoteBridge.cpp
     ../payload/core/procedure/Loom.cpp
     ../payload/core/procedure/Pin.cpp
+    ../payload/core/procedure/ProfileManager.cpp
     ../payload/core/procedure/Tick.cpp
     ../payload/core/procedure/procedures/AutoDecode.cpp
     ../payload/core/procedure/procedures/SpeedOverride.cpp
@@ -17,6 +18,7 @@ add_executable(dxs_preview WIN32
     ../payload/scripting/PythonBridge.cpp
     ../payload/ui/Overlay.cpp
     ../payload/ui/framework/ClickGui.cpp
+    ../payload/ui/framework/CommandPalette.cpp
     ../payload/ui/framework/Fonts.cpp
     ../payload/ui/framework/Splash.cpp
     ../payload/ui/framework/Theme.cpp

@@ -1,5 +1,6 @@
 #include "Loom.hpp"
 
+#include "Pin.hpp"
 #include "Tick.hpp"
 #include "core/Config.hpp"
 #include "core/Logger.hpp"
@@ -120,6 +121,38 @@ Phase Loom::phase_of(const Procedure& p) const {
 std::string_view Loom::fault_text(const Procedure& p) const {
     auto it = by_handle_.find(p.manifest().handle);
     return it == by_handle_.end() ? std::string_view{} : std::string_view(it->second->fault);
+}
+
+void Loom::rehydrate() {
+    auto& cfg = Config::instance();
+    for (auto& s : slots_) {
+        const std::string ek = engaged_key(s->proc->manifest().handle);
+        const bool next_eng = cfg.get_bool(ek, false);
+        // If the engaged flag flipped, fire the lifecycle hook so side
+        // effects (Python helper install, cleanup) stay consistent.
+        if (next_eng != s->engaged_requested) {
+            s->engaged_requested = next_eng;
+            if (next_eng) {
+                try { s->proc->on_engage(); }
+                catch (const std::exception& e) {
+                    s->fault.assign(e.what());
+                    s->phase = Phase::Faulted;
+                    continue;
+                }
+                s->phase = Phase::Priming;
+            } else {
+                try { s->proc->on_disengage(); }
+                catch (const std::exception& e) {
+                    s->fault.assign(e.what());
+                }
+                s->phase = Phase::Dormant;
+            }
+        }
+        for (auto* pin : s->proc->pins()) {
+            if (pin) pin->rehydrate();
+        }
+    }
+    DXS_INFO("Loom: rehydrated {} procedures", static_cast<int>(slots_.size()));
 }
 
 void Loom::advance(float dt) {

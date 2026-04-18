@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <imgui.h>
 #include <initializer_list>
 #include <string>
 #include <string_view>
@@ -54,6 +55,13 @@ public:
     // Procedure chooses to honour it; default implementation is type-
     // specific and implemented in the templates below.
     virtual void reset_to_default() = 0;
+
+    // Re-read the Pin's value from Config. Invoked by ProfileManager
+    // after it overwrites the config file with a loaded profile — the
+    // Pin's cached value is otherwise stale because Pins only hydrate
+    // once, in the ctor. Implementations do the same Config::get_* the
+    // ctor does, without triggering a set.
+    virtual void rehydrate() = 0;
 
 protected:
     PinBase(Procedure* owner,
@@ -95,6 +103,9 @@ public:
     PinBool& operator=(bool v) { set(v); return *this; }
 
     void reset_to_default() override { set(default_); }
+    void rehydrate() override {
+        value_ = Config::instance().get_bool(config_key_, default_);
+    }
     void draw() override;   // implementation in Pin.cpp so we don't
                             // drag theme headers into this file
 
@@ -127,6 +138,9 @@ public:
     float min() const { return bounds_.lo; }
     float max() const { return bounds_.hi; }
     void  reset_to_default() override { set(default_); }
+    void  rehydrate() override {
+        value_ = clamp(Config::instance().get_float(config_key_, default_), bounds_);
+    }
     void  draw() override;
 
 private:
@@ -163,6 +177,11 @@ public:
     int  min() const { return bounds_.lo; }
     int  max() const { return bounds_.hi; }
     void reset_to_default() override { set(default_); }
+    void rehydrate() override {
+        value_ = std::clamp(
+            Config::instance().get_int(config_key_, default_),
+            bounds_.lo, bounds_.hi);
+    }
     void draw() override;
 
 private:
@@ -203,6 +222,10 @@ public:
     const char* const*        options_raw() const { return options_.data(); }
 
     void reset_to_default() override { set(default_); }
+    void rehydrate() override {
+        value_ = std::clamp(
+            Config::instance().get_int(config_key_, default_), 0, count_ - 1);
+    }
     void draw() override;
 
 private:
@@ -213,6 +236,124 @@ private:
     int default_;
     int count_ = 0;
     int value_ = 0;
+};
+
+// ─── Pin<string> ────────────────────────────────────────────────────────
+// Single-line text. Useful for labels, filter expressions, RPC channel
+// names, etc. Storage is a fixed-cap ImGui edit buffer so the control can
+// go through ImGui::InputText without extra allocation per frame.
+
+class PinString : public PinBase {
+public:
+    PinString(Procedure* owner,
+              std::string_view tag, std::string_view label,
+              std::string_view default_val,
+              std::size_t max_len = 128)
+        : PinBase(owner, tag, label), default_(default_val), max_len_(max_len) {
+        value_ = Config::instance().get(config_key_, default_);
+    }
+
+    std::string_view get() const noexcept { return value_; }
+    operator std::string_view() const noexcept { return value_; }
+    const char* c_str() const noexcept { return value_.c_str(); }
+
+    void set(std::string_view v) {
+        std::string s(v);
+        if (s == value_) return;
+        value_ = std::move(s);
+        Config::instance().set(config_key_, value_);
+    }
+
+    std::size_t max_len() const noexcept { return max_len_; }
+
+    void reset_to_default() override { set(default_); }
+    void rehydrate() override {
+        value_ = Config::instance().get(config_key_, default_);
+    }
+    void draw() override;
+
+private:
+    std::string default_;
+    std::string value_;
+    std::size_t max_len_;
+};
+
+// ─── Pin<key> ───────────────────────────────────────────────────────────
+// A Windows virtual-key code (VK_*). 0 == unbound. The UI shows a
+// "listening" button — click it, press any key, bound. Pressing Escape
+// during listening unbinds. Used for sigils (Procedure-level hotkeys)
+// and for any in-game action surface a Procedure wants to override.
+
+class PinKey : public PinBase {
+public:
+    PinKey(Procedure* owner,
+           std::string_view tag, std::string_view label,
+           int default_vk = 0)
+        : PinBase(owner, tag, label), default_(default_vk),
+          value_(Config::instance().get_int(config_key_, default_vk)) {}
+
+    int  get() const noexcept { return value_; }
+    operator int() const noexcept { return value_; }
+    bool bound() const noexcept { return value_ != 0; }
+
+    void set(int vk) {
+        if (vk == value_) return;
+        value_ = vk;
+        Config::instance().set_int(config_key_, vk);
+    }
+
+    // Returns "F6" / "Space" / "Ctrl" / "(unbound)" — used by the UI and
+    // by any narration (e.g. "Sigil: F7" in the card caption).
+    static const char* label_for(int vk);
+
+    void reset_to_default() override { set(default_); }
+    void rehydrate() override {
+        value_ = Config::instance().get_int(config_key_, default_);
+    }
+    void draw() override;
+
+private:
+    int default_;
+    int value_;
+};
+
+// ─── Pin<color> ─────────────────────────────────────────────────────────
+// RGBA stored as a packed hex string ("#rrggbbaa") in Config so the JSON
+// profile export stays clean — no separate "r/g/b/a" key sprawl.
+
+class PinColor : public PinBase {
+public:
+    PinColor(Procedure* owner,
+             std::string_view tag, std::string_view label,
+             ImVec4 default_col)
+        : PinBase(owner, tag, label), default_(default_col), value_(default_col) {
+        rehydrate();
+    }
+
+    ImVec4 get() const noexcept { return value_; }
+    operator ImVec4() const noexcept { return value_; }
+
+    void set(ImVec4 v) {
+        if (v.x == value_.x && v.y == value_.y &&
+            v.z == value_.z && v.w == value_.w) return;
+        value_ = v;
+        Config::instance().set(config_key_, pack(v));
+    }
+
+    void reset_to_default() override { set(default_); }
+    void rehydrate() override {
+        const std::string s =
+            Config::instance().get(config_key_, pack(default_));
+        value_ = unpack(s, default_);
+    }
+    void draw() override;
+
+private:
+    static std::string pack(ImVec4 c);
+    static ImVec4      unpack(std::string_view s, ImVec4 fallback);
+
+    ImVec4 default_;
+    ImVec4 value_;
 };
 
 }  // namespace dxs::procedure

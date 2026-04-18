@@ -9,6 +9,7 @@ add_library(dxsense SHARED
     core/RemoteBridge.cpp
     core/procedure/Loom.cpp
     core/procedure/Pin.cpp
+    core/procedure/ProfileManager.cpp
     core/procedure/Tick.cpp
     core/procedure/procedures/AutoDecode.cpp
     core/procedure/procedures/SpeedOverride.cpp
@@ -21,6 +22,7 @@ add_library(dxsense SHARED
     scripting/PythonBridge.cpp
     ui/Overlay.cpp
     ui/framework/ClickGui.cpp
+    ui/framework/CommandPalette.cpp
     ui/framework/Fonts.cpp
     ui/framework/Splash.cpp
     ui/framework/Theme.cpp

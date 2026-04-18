@@ -1,6 +1,7 @@
 #include "SpeedOverride.hpp"
 
 #include "core/procedure/Tick.hpp"
+#include "scripting/PythonBridge.hpp"
 
 #include <cstdio>
 
@@ -66,7 +67,11 @@ SpeedOverride::SpeedOverride()
           .domain   = Domain::Movement,
           .synopsis = "Pin msm.force_speed to a fixed m/s; bypasses engine clamps.",
       },
-      target_    (this, "target",     "Target speed (m/s)",    150.0f, {0.0f, 400.0f}),
+      // Baseline civilian speed is 150 m/s — picking that as the default
+      // meant the first-time toggle looked broken (no visible change).
+      // 220 is obviously faster but still within the anti-cheat debounce
+      // envelope tested in VulnLab.
+      target_    (this, "target",     "Target speed (m/s)",    220.0f, {0.0f, 400.0f}),
       anti_clear_(this, "anti_clear", "Clear anti-cheat buffer", true),
       tick_rate_ (this, "tick_rate",  "Push rate (seconds)",     0.25f, {0.05f, 2.0f})
 {}
@@ -89,20 +94,20 @@ void SpeedOverride::on_engage() {
 }
 
 void SpeedOverride::on_disengage() {
-    // Same reasoning — ask weave() to fire a clear on its way out. But
-    // weave doesn't run after disengage. Workaround: encode the cleanup
-    // as a tick-less helper call. Simplest realisation: send the clear
-    // snippet through the PythonBridge directly IS a driver concern,
-    // but Procedure doesn't have Tick.
+    // Clear the override immediately — otherwise the user toggles off
+    // and the character is still locked to the forced speed until the
+    // game resets msm on its own (scene transition / respawn).
     //
-    // Pragmatic compromise: the Loom exposes a "final tick" guarantee —
-    // next_push_at_ gets reset so when the user re-engages it reinstalls
-    // cleanly. For actual force_speed cleanup, users should PANIC via
-    // VulnLab or re-engage this procedure with target = 0 briefly.
-    //
-    // (Follow-up work: the Loom could support one-shot intents emitted
-    // from lifecycle hooks. For now this is acceptable — ranked among
-    // "true" module clients lower-impact than SpeedOverride throwing.)
+    // on_disengage runs on the render thread (the Loom calls it from
+    // set_engaged, which is reached via the ModulesPanel toggle). That's
+    // the same thread PythonBridge::exec_and_collect expects, so calling
+    // directly is fine. We don't go through Tick because there isn't a
+    // Tick in lifecycle hooks (and creating a fake one just to emit one
+    // intent would be more awkward than this direct call).
+    PythonBridge::instance().exec_and_collect(
+        "try:\n"
+        "    import _dxs_speed as s; s.clear()\n"
+        "except Exception: pass\n");
     next_push_at_ = 0.0;
 }
 
