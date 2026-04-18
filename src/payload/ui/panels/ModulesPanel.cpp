@@ -114,7 +114,14 @@ float draw_card(Procedure& p, float width) {
     const float expanded = ex_ch.current;
 
     const float title_h = 40.0f;
-    const float pin_row_h = 34.0f;
+    // Height per pin — uses the MAX any pin type draws, not the minimum.
+    // Previous 34 px fit PinBool nicely but cropped PinChoice (caption +
+    // 28 px segmented = ~44) and PinKey (caption + 28 px ghost_button =
+    // ~44). Pins later in the list were drawn correctly by the y_cursor
+    // measuring loop but the CARD OUTER HEIGHT was still computed from
+    // 34 so everything past the first over-tall pin clipped against
+    // body_br — user's "看不到" (can't see the Hotkey button) screenshot.
+    const float pin_row_h = 46.0f;
     const int   pin_count = static_cast<int>(p.pins().size());
     const float full_body_h = pin_row_h * std::max(1, pin_count) + 20.0f;
     const float body_h = full_body_h * expanded;

@@ -3,6 +3,7 @@
 #include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
 #include "ui/framework/Icons.hpp"
+#include "ui/framework/MdiIcons.hpp"
 
 #include <array>
 #include <cstdint>
@@ -19,7 +20,7 @@ public:
     std::string_view id()       const override { return "vuln_lab"; }
     std::string_view category() const override { return L("sidebar.lab"); }
     std::string_view title()    const override { return L("panel.vuln_lab.title"); }
-    std::string_view icon()     const override { return ICON_FLASK; }
+    std::string_view icon()     const override { return MDI_FLASK_OUTLINE; }
     void             draw()           override;
     using Pair = std::pair<std::string, std::string>;
     struct CfgTuple {

@@ -4,8 +4,8 @@ set(FETCHCONTENT_QUIET OFF)
 # ---- UI fonts --------------------------------------------------------------
 # Inter is downloaded once per clean build. Users reject the stock Windows
 # font stack; Inter is the de-facto modern UI sans and survives scale well.
-# Additional CJK / icon faces come from the Windows system fonts at runtime
-# (DengXian Light, Segoe Fluent Icons).
+# Additional CJK faces come from Windows system fonts at runtime; shipped
+# UI icon fonts live in the build tree and get copied next to the payload DLL.
 set(DXS_FONTS_DIR "${CMAKE_BINARY_DIR}/bin/fonts")
 file(MAKE_DIRECTORY "${DXS_FONTS_DIR}")
 
@@ -27,6 +27,15 @@ endfunction()
 dxs_fetch_font(
     "https://github.com/rsms/inter/raw/master/docs/font-files/InterVariable.ttf"
     "${DXS_FONTS_DIR}/Inter.ttf")
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/fonts/MaterialDesignIcons.ttf")
+    file(COPY "${CMAKE_SOURCE_DIR}/fonts/MaterialDesignIcons.ttf"
+         DESTINATION "${DXS_FONTS_DIR}")
+else()
+    dxs_fetch_font(
+        "https://cdn.jsdelivr.net/npm/@mdi/font/fonts/materialdesignicons-webfont.ttf"
+        "${DXS_FONTS_DIR}/MaterialDesignIcons.ttf")
+endif()
 
 
 # ---- ImGui (docking branch) ------------------------------------------------
@@ -55,6 +64,7 @@ target_include_directories(imgui PUBLIC
 target_compile_definitions(imgui PUBLIC
     IMGUI_DISABLE_OBSOLETE_FUNCTIONS
     IMGUI_DEFINE_MATH_OPERATORS
+    IMGUI_USE_WCHAR32
 )
 
 # ---- MinHook ---------------------------------------------------------------

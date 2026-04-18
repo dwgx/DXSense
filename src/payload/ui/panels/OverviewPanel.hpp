@@ -3,6 +3,7 @@
 #include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
 #include "ui/framework/Icons.hpp"
+#include "ui/framework/MdiIcons.hpp"
 
 #include <array>
 
@@ -13,7 +14,7 @@ public:
     std::string_view id()       const override { return "overview"; }
     std::string_view category() const override { return L("sidebar.core"); }
     std::string_view title()    const override { return L("panel.overview.title"); }
-    std::string_view icon()     const override { return ICON_MATRIX; }  // FourRows grid — dashboard read
+    std::string_view icon()     const override { return MDI_VIEW_DASHBOARD_OUTLINE; }
     void             draw()           override;
 
 private:

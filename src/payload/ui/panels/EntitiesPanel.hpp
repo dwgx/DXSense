@@ -3,6 +3,7 @@
 #include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
 #include "ui/framework/Icons.hpp"
+#include "ui/framework/MdiIcons.hpp"
 
 #include <string>
 #include <unordered_set>
@@ -19,7 +20,7 @@ public:
     std::string_view id()       const override { return "entities"; }
     std::string_view category() const override { return L("sidebar.inspection"); }
     std::string_view title()    const override { return L("panel.entities.title"); }
-    std::string_view icon()     const override { return ICON_PEOPLE; }
+    std::string_view icon()     const override { return MDI_ACCOUNT_GROUP_OUTLINE; }
     void             draw()           override;
     void             on_first_show() override;
 

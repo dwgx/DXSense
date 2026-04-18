@@ -1,6 +1,7 @@
 #include "Fonts.hpp"
 
 #include "Icons.hpp"
+#include "MdiIcons.hpp"
 #include "core/Logger.hpp"
 
 #include <Windows.h>
@@ -126,6 +127,18 @@ void load() {
             fluent.string().c_str(), 15.0f, &cfg_icon, dxs::icons::range());
     }
 
+    const auto mdi = dll_dir() / "fonts" / "MaterialDesignIcons.ttf";
+    if (std::filesystem::exists(mdi)) {
+        ImFontConfig cfg_mdi;
+        cfg_mdi.MergeMode         = true;
+        cfg_mdi.OversampleH       = 1;
+        cfg_mdi.OversampleV       = 1;
+        cfg_mdi.GlyphMinAdvanceX  = 15.0f;
+        cfg_mdi.GlyphOffset       = ImVec2(0, 1);
+        io.Fonts->AddFontFromFileTTF(
+            mdi.string().c_str(), 15.0f, &cfg_mdi, dxs::mdi::range());
+    }
+
     // --- Splash hero font -----------------------------------------------------
     // Rasterise the splash title at 96 px directly instead of upscaling the
     // 15-px UI font 5×. Upscaling a 15-px glyph atlas by 5× is bilinear —
@@ -148,10 +161,11 @@ void load() {
     }
 
     io.Fonts->Build();
-    DXS_INFO("Fonts: {} + {} + {} + splash96 ({} x {} atlas)",
+    DXS_INFO("Fonts: {} + {} + {} + {} + splash96 ({} x {} atlas)",
              base_path.filename().string(),
              cjk.empty() ? "-" : cjk.filename().string(),
              std::filesystem::exists(fluent) ? "SegoeIcons" : "-",
+             std::filesystem::exists(mdi) ? mdi.filename().string() : "-",
              io.Fonts->TexWidth, io.Fonts->TexHeight);
 }
 

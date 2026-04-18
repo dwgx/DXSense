@@ -3,6 +3,7 @@
 #include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
 #include "ui/framework/Icons.hpp"
+#include "ui/framework/MdiIcons.hpp"
 
 #include <array>
 #include <cstddef>
@@ -28,7 +29,7 @@ public:
     std::string_view id()       const override { return "interaction_father"; }
     std::string_view category() const override { return L("sidebar.lab"); }
     std::string_view title()    const override { return L("panel.interaction_father.title"); }
-    std::string_view icon()     const override { return ICON_TAP; }
+    std::string_view icon()     const override { return MDI_GESTURE_TAP; }
     void             draw()           override;
 
     void append(Interaction e);

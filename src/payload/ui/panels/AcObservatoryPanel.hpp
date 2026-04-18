@@ -3,6 +3,7 @@
 #include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
 #include "ui/framework/Icons.hpp"
+#include "ui/framework/MdiIcons.hpp"
 
 #include <array>
 #include <atomic>
@@ -19,7 +20,7 @@ public:
     std::string_view id()       const override { return "ac_observatory"; }
     std::string_view category() const override { return L("sidebar.inspection"); }
     std::string_view title()    const override { return L("panel.ac_observatory.title"); }
-    std::string_view icon()     const override { return ICON_SEARCH; }
+    std::string_view icon()     const override { return MDI_SHIELD_SEARCH; }
     void             draw()           override;
 
     struct Entry {

@@ -82,6 +82,9 @@ add_custom_command(TARGET dxsense POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${DXS_FONTS_DIR}/Inter.ttf"
             "$<TARGET_FILE_DIR:dxsense>/fonts/Inter.ttf"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${DXS_FONTS_DIR}/MaterialDesignIcons.ttf"
+            "$<TARGET_FILE_DIR:dxsense>/fonts/MaterialDesignIcons.ttf"
     VERBATIM)
 
 target_link_libraries(dxsense PRIVATE

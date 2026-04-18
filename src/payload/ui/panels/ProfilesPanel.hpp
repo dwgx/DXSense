@@ -2,6 +2,7 @@
 
 #include "ui/framework/IPanel.hpp"
 #include "ui/framework/Icons.hpp"
+#include "ui/framework/MdiIcons.hpp"
 
 namespace dxs {
 
@@ -15,7 +16,7 @@ public:
     std::string_view id()       const override { return "profiles"; }
     std::string_view category() const override { return "Scripting"; }
     std::string_view title()    const override { return "Profiles"; }
-    std::string_view icon()     const override { return ICON_DOC; }
+    std::string_view icon()     const override { return MDI_FILE_DOCUMENT_OUTLINE; }
     void             draw()           override;
 };
 

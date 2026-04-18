@@ -3,6 +3,7 @@
 #include "core/Localization.hpp"
 #include "ui/framework/IPanel.hpp"
 #include "ui/framework/Icons.hpp"
+#include "ui/framework/MdiIcons.hpp"
 
 namespace dxs {
 
@@ -11,7 +12,7 @@ public:
     std::string_view id()       const override { return "hooks"; }
     std::string_view category() const override { return L("sidebar.core"); }
     std::string_view title()    const override { return L("panel.hooks.title"); }
-    std::string_view icon()     const override { return ICON_HOOK; }
+    std::string_view icon()     const override { return MDI_HOOK; }
     void             draw()           override;
 };
 

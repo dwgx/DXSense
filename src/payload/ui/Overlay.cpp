@@ -8,6 +8,7 @@
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/CommandPalette.hpp"
 #include "ui/framework/Icons.hpp"
+#include "ui/framework/MdiIcons.hpp"
 #include "ui/framework/Notifications.hpp"
 #include "ui/framework/Splash.hpp"
 #include "ui/framework/TabbedPanel.hpp"
@@ -76,11 +77,10 @@ void Overlay::register_default_panels() {
     // Includes the previous DevTools tabs plus Hooks / Python REPL /
     // Quick Actions / Memory. User groups these all as "the things I
     // pull out when I actually want to dig in."
-    // ICON_CODE (E756 CommandPrompt ">_") reads as "dev terminal"; the
-    // inner Matrix tab still uses ICON_MATRIX so command-palette search
-    // results stay distinct.
+    // MDI_HAMMER_WRENCH reads as the broader "tooling/workbench" surface;
+    // inner tabs keep their own distinct MDI glyphs for search results.
     auto devtools = std::make_unique<TabbedPanel>(
-        "devtools", "DevTools", "DevTools", ICON_CODE);
+        "devtools", "DevTools", "DevTools", MDI_HAMMER_WRENCH);
     devtools->add(std::make_unique<EntitiesPanel>());
     devtools->add(std::make_unique<MatrixPanel>());
     devtools->add(std::make_unique<RaycastPanel>());
@@ -94,7 +94,7 @@ void Overlay::register_default_panels() {
 
     // ── Lab — the "playing" / red-team surfaces.
     auto lab = std::make_unique<TabbedPanel>(
-        "lab", "Lab", "Lab", ICON_FLASK);
+        "lab", "Lab", "Lab", MDI_FLASK_OUTLINE);
     lab->add(std::make_unique<VelocityLabPanel>());
     lab->add(std::make_unique<VulnLabPanel>());
     lab->add(std::make_unique<InteractionFatherPanel>());
