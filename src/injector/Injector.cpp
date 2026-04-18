@@ -47,12 +47,102 @@ DWORD find_pid_by_name(std::wstring_view exe) {
     return pid;
 }
 
+// Find the remote HMODULE of a DLL by its exe-file name (e.g. "DXSense.dll").
+// Walks the target's module list via CreateToolhelp32Snapshot — doesn't
+// require any APIs injected into the target. Returns nullptr if absent.
+HMODULE find_remote_module(DWORD pid, std::wstring_view dll_name) {
+    const HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+    if (snap == INVALID_HANDLE_VALUE) return nullptr;
+    MODULEENTRY32W me{};
+    me.dwSize = sizeof(me);
+    HMODULE out = nullptr;
+    if (Module32FirstW(snap, &me)) {
+        do {
+            if (_wcsicmp(me.szModule, dll_name.data()) == 0) {
+                out = me.hModule;
+                break;
+            }
+        } while (Module32NextW(snap, &me));
+    }
+    CloseHandle(snap);
+    return out;
+}
+
+// Issue one remote FreeLibrary(hmod). Kernel32 lives at the same base across
+// 64-bit processes of the same arch, so FreeLibrary's VA in our process is
+// valid in theirs — same trick the LoadLibraryW injection below uses.
+bool remote_free_library(HANDLE proc, HMODULE hmod) {
+    const auto freelib = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+        GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "FreeLibrary"));
+    if (!freelib) return false;
+    const HANDLE th = CreateRemoteThread(proc, nullptr, 0,
+                                          freelib, hmod, 0, nullptr);
+    if (!th) return false;
+    WaitForSingleObject(th, 5000);
+    DWORD rc = 0;
+    GetExitCodeThread(th, &rc);
+    CloseHandle(th);
+    return rc != 0;
+}
+
+// Drop every lingering reference to the named DLL in the target. Handles the
+// "interrupted eject" zombie case: the payload's self-eject splash plays for
+// a short budget before it calls FreeLibraryAndExitThread; if the user hits
+// the injector during that window, LoadLibraryW bumps the refcount — the
+// eject then decrements it back and the DLL stays loaded but dead. Further
+// injects just increment the refcount on that dead module with no DllMain
+// call, so Engine::start never re-runs.
+//
+// Strategy: if the module is present, WAIT up to 3.5 s for an in-flight
+// eject_worker to complete its own FreeLibraryAndExitThread. That's the
+// graceful path — we don't want to yank the DLL out from under the eject
+// thread (its code pages would be unmapped mid-execution → AV). Only after
+// the grace period lapses do we force-FreeLibrary: at that point the DLL
+// is presumed truly zombie (eject crashed, or double-injected etc.) and
+// there's no live thread inside it to crash.
+void ensure_clean_slate(HANDLE proc, DWORD pid, const std::wstring& dll_name) {
+    HMODULE existing = find_remote_module(pid, dll_name);
+    if (!existing) return;
+
+    std::wprintf(L"[*] %s already in target (handle 0x%p) — waiting for any "
+                 L"in-flight eject to complete\n", dll_name.c_str(), existing);
+
+    // Graceful wait — eject_worker typically finishes in ~2.6 s.
+    for (int ms = 0; ms < 3500; ms += 100) {
+        Sleep(100);
+        existing = find_remote_module(pid, dll_name);
+        if (!existing) {
+            std::wprintf(L"[+] prior instance unloaded cleanly after %d ms\n", ms + 100);
+            return;
+        }
+    }
+
+    // Module is still present after the grace window → assume zombie and
+    // forcibly decrement every ref we can see.
+    std::wprintf(L"[!] %s did not unload within grace window — force-unloading zombie\n",
+                 dll_name.c_str());
+    for (int guard = 0; guard < 16; ++guard) {
+        existing = find_remote_module(pid, dll_name);
+        if (!existing) return;
+        if (!remote_free_library(proc, existing)) break;
+    }
+    HMODULE still = find_remote_module(pid, dll_name);
+    if (still) {
+        std::fwprintf(stderr,
+            L"[!] %s is still loaded after 16 FreeLibrary attempts — the prior "
+            L"instance may be pinned. Restart the target to clean up.\n",
+            dll_name.c_str());
+    }
+}
+
 bool inject(DWORD pid, const fs::path& dll) {
     const HANDLE proc = OpenProcess(
         PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION |
         PROCESS_VM_WRITE     | PROCESS_VM_READ      | PROCESS_QUERY_INFORMATION,
         FALSE, pid);
     if (!proc) { perr(L"OpenProcess"); return false; }
+
+    ensure_clean_slate(proc, pid, dll.filename().wstring());
 
     const std::wstring full = fs::absolute(dll).wstring();
     const SIZE_T bytes = (full.size() + 1) * sizeof(wchar_t);

@@ -59,7 +59,9 @@ void RaycastPanel::draw() {
     const float  gap    = theme::space_lg;
     const float  left_w = std::max(1.0f, (avail.x - gap) * 0.6f);
 
-    if (ImGui::BeginChild("##raycast_left", ImVec2(left_w, avail.y), false)) {
+    if (ImGui::BeginChild("##raycast_left", ImVec2(left_w, avail.y), false,
+                          ImGuiWindowFlags_NoScrollbar |
+                          ImGuiWindowFlags_NoScrollWithMouse)) {
         const float caption_h = ImGui::GetTextLineHeightWithSpacing();
         const float canvas_h = std::max(
             140.0f, ImGui::GetContentRegionAvail().y - caption_h - theme::space_sm);
@@ -94,7 +96,8 @@ void RaycastPanel::draw() {
 
     ImGui::SameLine(0.0f, gap);
 
-    if (ImGui::BeginChild("##raycast_right", ImVec2(0.0f, avail.y), false)) {
+    if (ImGui::BeginChild("##raycast_right", ImVec2(0.0f, avail.y), false,
+                          ImGuiWindowFlags_NoScrollbar)) {
         theme::section_divider("RAY");
         ImGui::Dummy(ImVec2(0.0f, theme::space_sm));
         if (snap.camera_ready &&

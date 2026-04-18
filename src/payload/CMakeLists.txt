@@ -12,6 +12,7 @@ add_library(dxsense SHARED
     core/procedure/ProfileManager.cpp
     core/procedure/Tick.cpp
     core/procedure/procedures/AutoDecode.cpp
+    core/procedure/procedures/EspVisual.cpp
     core/procedure/procedures/SpeedOverride.cpp
     game/CameraSampler.cpp
     game/GameMemory.cpp
@@ -24,7 +25,9 @@ add_library(dxsense SHARED
     ui/framework/ClickGui.cpp
     ui/framework/CommandPalette.cpp
     ui/framework/Fonts.cpp
+    ui/framework/Notifications.cpp
     ui/framework/Splash.cpp
+    ui/framework/TabbedPanel.cpp
     ui/framework/Theme.cpp
     ui/framework/View3D.cpp
     ui/hud/HudManager.cpp
@@ -41,6 +44,7 @@ add_library(dxsense SHARED
     ui/panels/ModulesPanel.cpp
     ui/panels/MemoryPanel.cpp
     ui/panels/OverviewPanel.cpp
+    ui/panels/ProfilesPanel.cpp
     ui/panels/PythonReplPanel.cpp
     ui/panels/QuickActionsPanel.cpp
     ui/panels/RaycastPanel.cpp

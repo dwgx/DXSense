@@ -21,8 +21,24 @@ bool command_palette_open();
 // palette regardless of which ImGui widget has focus.
 void command_palette_on_key(int vk, bool ctrl_down);
 
-// Rendered as part of the overlay layer, ABOVE the ClickGui window but
-// BELOW the splash. No-op when the palette is closed.
+// No-op kept for binary compatibility — the palette used to render as a
+// centered modal on top of the ClickGui. It now renders INSIDE the
+// ClickGui content area (see command_palette_draw_inline). Called from
+// Overlay::draw as a stub so existing call sites compile unchanged.
 void command_palette_draw();
+
+// Renders the palette in place of the active panel inside the ClickGui
+// content card. Called from ClickGui::draw_content when the palette is
+// open. Inline rendering means the content area itself "becomes" the
+// palette — no scrim, no extra window — so Ctrl+K feels like navigating
+// to a new sidebar page rather than opening a modal.
+void command_palette_draw_inline();
+
+// True while the palette is animating — either opening (alpha rising)
+// or closing (alpha falling but not yet 0). ClickGui uses this to know
+// whether to keep routing the content card to the palette even after
+// the user has pressed Esc, so the fade-out gets drawn before the
+// active panel pops back.
+bool command_palette_is_drawing();
 
 }  // namespace dxs

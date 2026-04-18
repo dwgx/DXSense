@@ -132,8 +132,11 @@ void draw_tile(const DashboardTile& tile, float card_w) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImFont* font   = ImGui::GetFont();
 
-    dl->AddRectFilled(tl, br, IM_COL32(255, 255, 255, hovered ? 10 : 6), theme::radius_lg);
-    dl->AddRect(tl, br, IM_COL32(255, 255, 255, hovered ? 24 : 12), theme::radius_lg, 0, 1.0f);
+    // rgba_u32 multiplies by GetStyle().Alpha so overview tiles fade
+    // together with the rest of the ClickGui during open/close. Bare
+    // IM_COL32 would leave the tile fills opaque through the fade.
+    dl->AddRectFilled(tl, br, theme::rgba_u32(255, 255, 255, hovered ? 10 : 6), theme::radius_lg);
+    dl->AddRect(tl, br, theme::rgba_u32(255, 255, 255, hovered ? 24 : 12), theme::radius_lg, 0, 1.0f);
     theme::draw_inner_highlight(tl, br, theme::radius_lg);
     dl->PushClipRect(tl, br, true);
 
@@ -172,7 +175,13 @@ void draw_tile(const DashboardTile& tile, float card_w) {
               kDetailPx, dim_col, detail);
 
     dl->PopClipRect();
-    ImGui::SetCursorScreenPos(restore);
+    // Re-anchor the layout cursor on the card rect so the next SameLine
+    // call positions off the card itself, not the last internal draw. This
+    // is the v3 CardGridCell pattern — without it the tiles stair-step
+    // diagonally across the Overview grid.
+    ImGui::SetCursorScreenPos(tl);
+    ImGui::Dummy(ImVec2(card_w, kTileH));
+    (void)restore;
     ImGui::PopID();
 }
 

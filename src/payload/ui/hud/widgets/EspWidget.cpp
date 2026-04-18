@@ -21,6 +21,10 @@ EspWidget::EspWidget() {
     // Pull persisted settings from Config so user tweaks survive eject /
     // reinject. Defaults (declared in the header) take over when a key
     // isn't present yet.
+    rehydrate();
+}
+
+void EspWidget::rehydrate() {
     auto& cfg = Config::instance();
     show_hunters_     = cfg.get_bool ("hud.esp.hunters",       show_hunters_);
     show_survivors_   = cfg.get_bool ("hud.esp.survivors",     show_survivors_);
@@ -265,18 +269,23 @@ void EspWidget::draw(ImDrawList* dl, ImVec2 /*pos*/, ImVec2 size) {
 
 void EspWidget::draw_settings() {
     bool dirty = false;
+    // Use native ImGui::Checkbox inside this popup — theme::checkbox has
+    // a known interaction issue where multiple instances on a SameLine
+    // row fail to register clicks when nested inside a popup. Native
+    // checkbox is uglier but always functional. The appearance mismatch
+    // only shows up inside this gear popover.
     ImGui::TextDisabled("%s", L("esp.targets").data());
-    dirty |= theme::checkbox(L("esp.hunters"  ).data(), &show_hunters_);   ImGui::SameLine();
-    dirty |= theme::checkbox(L("esp.survivors").data(), &show_survivors_); ImGui::SameLine();
-    dirty |= theme::checkbox(L("esp.props"    ).data(), &show_props_);
+    dirty |= ImGui::Checkbox(L("esp.hunters"  ).data(), &show_hunters_);   ImGui::SameLine();
+    dirty |= ImGui::Checkbox(L("esp.survivors").data(), &show_survivors_); ImGui::SameLine();
+    dirty |= ImGui::Checkbox(L("esp.props"    ).data(), &show_props_);
 
     ImGui::TextDisabled("%s", L("esp.overlay").data());
-    dirty |= theme::checkbox(L("esp.box"       ).data(), &show_box_);        ImGui::SameLine();
-    dirty |= theme::checkbox(L("esp.tracer"    ).data(), &show_tracer_);     ImGui::SameLine();
-    dirty |= theme::checkbox(L("esp.distance"  ).data(), &show_distance_);
-    dirty |= theme::checkbox(L("esp.silhouette").data(), &show_silhouette_); ImGui::SameLine();
-    dirty |= theme::checkbox(L("esp.dot"       ).data(), &show_dot_);        ImGui::SameLine();
-    dirty |= theme::checkbox(L("esp.hunter_proximity").data(), &hunter_proximity_);
+    dirty |= ImGui::Checkbox(L("esp.box"       ).data(), &show_box_);        ImGui::SameLine();
+    dirty |= ImGui::Checkbox(L("esp.tracer"    ).data(), &show_tracer_);     ImGui::SameLine();
+    dirty |= ImGui::Checkbox(L("esp.distance"  ).data(), &show_distance_);
+    dirty |= ImGui::Checkbox(L("esp.silhouette").data(), &show_silhouette_); ImGui::SameLine();
+    dirty |= ImGui::Checkbox(L("esp.dot"       ).data(), &show_dot_);        ImGui::SameLine();
+    dirty |= ImGui::Checkbox(L("esp.hunter_proximity").data(), &hunter_proximity_);
 
     ImGui::TextDisabled("%s", L("esp.tuning").data());
 

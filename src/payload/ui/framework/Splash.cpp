@@ -107,42 +107,45 @@ void draw() {
         text_alpha = intro_text_alpha(t, bg_alpha);
         sub_alpha  = intro_sub_alpha(t, text_alpha);
     } else {
-        // Exit — fade to opaque quickly, then hold. No fade-out because the
-        // DLL can unload at any moment; a visible fade-out would only create
-        // a gap where HUD paints through.
-        const float s = static_cast<float>(
-            std::min(elapsed / kExitFadeIn, 1.0));
-        bg_alpha   = anim::ease_out_cubic(s);
-        text_alpha = bg_alpha;   // same envelope — keeps composition simple
-        sub_alpha  = bg_alpha;
+        // Exit — opaque IMMEDIATELY from frame 1, no fade-in. The previous
+        // 0.3 s fade looked fine on paper but in practice produced the
+        // "flash" the user reported: the confirm-click frame still drew
+        // ClickGui (active panels at that point hadn't noticed the eject
+        // yet), so the first post-confirm frame had ClickGui behind a
+        // transparent splash overlay. Over the next 0.3 s the splash
+        // faded in from 0 → 1 alpha, but ClickGui was already gone from
+        // subsequent frames — so the user saw a brief black-ish fade-in
+        // that read as "the splash flashing and disappearing". Popping
+        // straight to opaque kills the interleaving frame entirely.
+        bg_alpha   = 1.0f;
+        // Text fades in slightly slower than the bg for a touch of
+        // cinematic stagger — 0.15 s is short enough to feel like
+        // "instant" but long enough to not look like a jump-cut.
+        const float s = static_cast<float>(std::min(elapsed / 0.15, 1.0));
+        text_alpha = anim::ease_out_cubic(s);
+        sub_alpha  = text_alpha;
     }
 
-    const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(vp->WorkPos);
-    ImGui::SetNextWindowSize(vp->WorkSize);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::transparent);
-    ImGui::PushStyleVar  (ImGuiStyleVar_WindowPadding, ImVec2{});
-
-    const ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoInputs |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoBringToFrontOnFocus;
-
-    ImGui::Begin("##dxs_splash", nullptr, flags);
-
-    ImDrawList*  dl     = ImGui::GetWindowDrawList();
-    const ImVec2 wp     = ImGui::GetWindowPos();
-    const ImVec2 ws     = ImGui::GetWindowSize();
+    // Draw directly to the foreground list — NOT through a window. Before,
+    // splash lived in its own ImGui::Begin("##dxs_splash", ...) window with
+    // NoBringToFrontOnFocus. That flag means "don't raise me on focus" but
+    // the window's z position was still determined by whatever previously
+    // grabbed focus in the frame; the Uninject click closes the Settings
+    // modal which was ABOVE the splash in the z-order, and on the next
+    // frame the splash window could end up painted BEHIND stale ClickGui
+    // surfaces. User described it as "和 imgui 抢优先渲染层". The
+    // foreground draw list has no z-order sibling — it's composited above
+    // every window of the context, period.
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImDrawList*  dl     = ImGui::GetForegroundDrawList(vp);
+    const ImVec2 wp     = vp->WorkPos;
+    const ImVec2 ws     = vp->WorkSize;
     const ImVec2 centre = wp + ws * 0.5f;
 
     dl->AddRectFilled(wp, wp + ws,
         IM_COL32(0, 0, 0, static_cast<int>(bg_alpha * 255.0f)));
 
     if (text_alpha <= 0.0f) {
-        ImGui::End();
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
         return;
     }
 
@@ -197,10 +200,6 @@ void draw() {
         sub_col.w *= sub_alpha * 0.82f;
         dl->AddText(ui_font, sub_sz, sub_pos, theme::to_u32(sub_col), sub);
     }
-
-    ImGui::End();
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
 }
 
 }  // namespace dxs::splash

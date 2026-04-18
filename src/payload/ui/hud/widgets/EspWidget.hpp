@@ -24,6 +24,13 @@ public:
     void             draw(ImDrawList*, ImVec2, ImVec2) override;
     void             draw_settings() override;
 
+    // Re-read every cached knob from Config. Called by the EspVisual
+    // procedure after it writes pin edits into the `hud.esp.*` keys, so
+    // the widget doesn't keep stale copies. Without this, the procedure's
+    // Config writes would persist but the live widget would keep using
+    // whatever it hydrated at construction time.
+    void             rehydrate();
+
 private:
     // Tracer origin — where the line starts from. Bottom is the classic
     // "radar antenna" feel, Top is the "dropping signal" style, Centre

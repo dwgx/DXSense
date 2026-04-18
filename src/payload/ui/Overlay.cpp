@@ -7,7 +7,10 @@
 #include "game/CameraSampler.hpp"
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/CommandPalette.hpp"
+#include "ui/framework/Icons.hpp"
+#include "ui/framework/Notifications.hpp"
 #include "ui/framework/Splash.hpp"
+#include "ui/framework/TabbedPanel.hpp"
 #include "ui/framework/Theme.hpp"
 #include "ui/hud/HudManager.hpp"
 #include "ui/hud/widgets/CrosshairWidget.hpp"
@@ -23,6 +26,7 @@
 #include "ui/panels/MatrixPanel.hpp"
 #include "ui/panels/MemoryPanel.hpp"
 #include "ui/panels/OverviewPanel.hpp"
+#include "ui/panels/ProfilesPanel.hpp"
 #include "ui/panels/PythonReplPanel.hpp"
 #include "ui/panels/QuickActionsPanel.hpp"
 #include "ui/panels/RaycastPanel.hpp"
@@ -57,27 +61,56 @@ void Overlay::register_keybinds() {
 
 void Overlay::register_default_panels() {
     auto& gui = ClickGui::instance();
+
+    // ── Core — always-on top-of-sidebar entries.
     gui.register_panel(std::make_unique<OverviewPanel>());
-    gui.register_panel(std::make_unique<HooksPanel>());
-    gui.register_panel(std::make_unique<EntitiesPanel>());
-    gui.register_panel(std::make_unique<MatrixPanel>());
-    gui.register_panel(std::make_unique<RaycastPanel>());
-    gui.register_panel(std::make_unique<RpcTracerPanel>());
-    gui.register_panel(std::make_unique<AcObservatoryPanel>());
-    gui.register_panel(std::make_unique<MemoryPanel>());
-    gui.register_panel(std::make_unique<PythonReplPanel>());
-    gui.register_panel(std::make_unique<QuickActionsPanel>());
     gui.register_panel(std::make_unique<ModulesPanel>());
     gui.register_panel(std::make_unique<HudPanel>());
+
+    // Profiles standalone. User explicitly disagreed with grouping it
+    // under "Scripting" — profiles are config snapshots, unrelated to
+    // the inspection/scripting surfaces.
+    gui.register_panel(std::make_unique<ProfilesPanel>());
+
+    // ── DevTools — every debug-oriented surface under one tabbed page.
+    // Includes the previous DevTools tabs plus Hooks / Python REPL /
+    // Quick Actions / Memory. User groups these all as "the things I
+    // pull out when I actually want to dig in."
+    // ICON_CODE (E756 CommandPrompt ">_") reads as "dev terminal"; the
+    // inner Matrix tab still uses ICON_MATRIX so command-palette search
+    // results stay distinct.
+    auto devtools = std::make_unique<TabbedPanel>(
+        "devtools", "DevTools", "DevTools", ICON_CODE);
+    devtools->add(std::make_unique<EntitiesPanel>());
+    devtools->add(std::make_unique<MatrixPanel>());
+    devtools->add(std::make_unique<RaycastPanel>());
+    devtools->add(std::make_unique<RpcTracerPanel>());
+    devtools->add(std::make_unique<AcObservatoryPanel>());
+    devtools->add(std::make_unique<MemoryPanel>());
+    devtools->add(std::make_unique<HooksPanel>());
+    devtools->add(std::make_unique<PythonReplPanel>());
+    devtools->add(std::make_unique<QuickActionsPanel>());
+    gui.register_panel(std::move(devtools));
+
+    // ── Lab — the "playing" / red-team surfaces.
+    auto lab = std::make_unique<TabbedPanel>(
+        "lab", "Lab", "Lab", ICON_FLASK);
+    lab->add(std::make_unique<VelocityLabPanel>());
+    lab->add(std::make_unique<VulnLabPanel>());
+    lab->add(std::make_unique<InteractionFatherPanel>());
+    gui.register_panel(std::move(lab));
+
+    // Settings at the bottom.
     gui.register_panel(std::make_unique<SettingsPanel>());
-    gui.register_panel(std::make_unique<VelocityLabPanel>());
-    gui.register_panel(std::make_unique<VulnLabPanel>());
-    gui.register_panel(std::make_unique<InteractionFatherPanel>());
 
     auto& hud = HudManager::instance();
     hud.register_widget(std::make_unique<StatsWidget>());
     hud.register_widget(std::make_unique<CrosshairWidget>());
     hud.register_widget(std::make_unique<RadarWidget>());
+    // EspWidget still registers so HudManager::set_enabled("esp", bool)
+    // from procedure::EspVisual can find it — but HudPanel::draw filters
+    // it out of the widget card grid so there's no parallel toggle
+    // competing with the Modules card.
     hud.register_widget(std::make_unique<EspWidget>());
 }
 
@@ -94,14 +127,32 @@ void Overlay::draw() {
     ++frame_;
     Config::instance().save_if_dirty();   // debounced — safe to spam
 
-    // Cursor — hybrid strategy. The game calls ShowCursor(FALSE) in-match
-    // which drops the Windows cursor display counter below 0, meaning
-    // even our SetCursor(IDC_ARROW) in WM_SETCURSOR never results in a
-    // visible hardware cursor. Fallback: let ImGui paint its own cursor
-    // while the overlay is open. When both the OS and ImGui happen to
-    // draw (lobby case), the ImGui sprite is tiny and sits flush on top
-    // of the OS cursor with no visible artefact.
-    ImGui::GetIO().MouseDrawCursor = ClickGui::instance().is_animating_or_visible();
+    // Cursor — force the OS hardware cursor visible while the overlay is
+    // open. The game calls ShowCursor(FALSE) many times in-match, driving
+    // Windows' per-thread display counter below 0. WM_SETCURSOR's
+    // SetCursor(IDC_ARROW) then has no visible effect because the counter
+    // gates whether the cursor renders at all.
+    //
+    // Previous behaviour: enable ImGui's software cursor as a fallback.
+    // The user called that "virtual cursor" ugly. Correct fix: push the
+    // counter up to >=0 ourselves while the overlay is up, and pop it
+    // back down when the overlay closes so the game's in-match hidden
+    // cursor state is restored.
+    static int s_cursor_pushes = 0;
+    const bool want_cursor = ClickGui::instance().is_animating_or_visible();
+    if (want_cursor && s_cursor_pushes == 0) {
+        int rv;
+        do {
+            rv = ShowCursor(TRUE);
+            ++s_cursor_pushes;
+        } while (rv < 0);
+    } else if (!want_cursor && s_cursor_pushes > 0) {
+        while (s_cursor_pushes > 0) {
+            ShowCursor(FALSE);
+            --s_cursor_pushes;
+        }
+    }
+    ImGui::GetIO().MouseDrawCursor = false;   // OS cursor handles it now.
 
     // Refresh camera state before widgets draw so radar / matrix panel read
     // the same sample this frame. Sampler throttles internally (20 Hz default).
@@ -126,6 +177,13 @@ void Overlay::draw() {
         }
         command_palette_draw();
     }
+
+    // Notifications ride OUTSIDE the splash guard — we want "saved", "loaded",
+    // etc. to show even if the overlay is closed / mid-eject. They paint to
+    // the viewport foreground list so z-order is always above HUD + ClickGui
+    // but below the splash.
+    notify::Notifications::instance().draw();
+
     splash::draw();                       // rendered last — sits above everything
 }
 

@@ -11,6 +11,7 @@ add_executable(dxs_preview WIN32
     ../payload/core/procedure/ProfileManager.cpp
     ../payload/core/procedure/Tick.cpp
     ../payload/core/procedure/procedures/AutoDecode.cpp
+    ../payload/core/procedure/procedures/EspVisual.cpp
     ../payload/core/procedure/procedures/SpeedOverride.cpp
     ../payload/game/CameraSampler.cpp
     ../payload/game/GameMemory.cpp
@@ -20,7 +21,9 @@ add_executable(dxs_preview WIN32
     ../payload/ui/framework/ClickGui.cpp
     ../payload/ui/framework/CommandPalette.cpp
     ../payload/ui/framework/Fonts.cpp
+    ../payload/ui/framework/Notifications.cpp
     ../payload/ui/framework/Splash.cpp
+    ../payload/ui/framework/TabbedPanel.cpp
     ../payload/ui/framework/Theme.cpp
     ../payload/ui/framework/View3D.cpp
     ../payload/ui/hud/HudManager.cpp
@@ -37,6 +40,7 @@ add_executable(dxs_preview WIN32
     ../payload/ui/panels/MemoryPanel.cpp
     ../payload/ui/panels/ModulesPanel.cpp
     ../payload/ui/panels/OverviewPanel.cpp
+    ../payload/ui/panels/ProfilesPanel.cpp
     ../payload/ui/panels/PythonReplPanel.cpp
     ../payload/ui/panels/QuickActionsPanel.cpp
     ../payload/ui/panels/RaycastPanel.cpp

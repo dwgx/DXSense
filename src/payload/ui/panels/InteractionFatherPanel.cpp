@@ -285,10 +285,10 @@ void InteractionFatherPanel::draw() {
         selected_idx_ = -1;
     }
     ImGui::SameLine(0, theme::space_md);
-    ImGui::SetNextItemWidth(200);
+    ImGui::SetNextItemWidth(260);
     ImGui::InputTextWithHint("##if_filter_name", "filter name", filter_name_, sizeof(filter_name_));
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(120);
+    ImGui::SetNextItemWidth(200);
     ImGui::InputTextWithHint("##if_filter_source", "source: all|rpc_async|py_hook",
                              filter_source_, sizeof(filter_source_));
 

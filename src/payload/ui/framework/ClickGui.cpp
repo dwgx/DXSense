@@ -3,6 +3,7 @@
 #include "Animation.hpp"
 #include "CommandPalette.hpp"
 #include "Icons.hpp"
+#include "Notifications.hpp"
 #include "Theme.hpp"
 #include "ui/Overlay.hpp"
 
@@ -17,11 +18,16 @@ namespace dxs {
 
 namespace {
 constexpr double kToastDurationSec = 2.0;
-// v3 default geometry.
+// v3 default geometry. Max is capped so the window doesn't keep stretching
+// indefinitely when the user drags the resize grip — past ~1400 the content
+// card just becomes a sea of whitespace on a 4K screen. Min is the smallest
+// layout that keeps the two-column body readable.
 constexpr float  kWindowDefW       = 1100.0f;
 constexpr float  kWindowDefH       =  720.0f;
-constexpr float  kWindowMinW       =  960.0f;
-constexpr float  kWindowMinH       =  600.0f;
+constexpr float  kWindowMinW       =  880.0f;
+constexpr float  kWindowMinH       =  560.0f;
+constexpr float  kWindowMaxW       = 1400.0f;
+constexpr float  kWindowMaxH       =  960.0f;
 }
 
 ClickGui& ClickGui::instance() {
@@ -44,7 +50,12 @@ void ClickGui::select(std::string_view panel_id) {
 }
 
 void ClickGui::toast(std::string msg) {
-    toasts_.push_back({std::move(msg), ImGui::GetTime() + kToastDurationSec});
+    // Legacy API — forward to the new viewport-level notification system
+    // so every caller gets the bottom-right stacking + kind styling +
+    // "persists even after overlay closes" behaviour for free. The old
+    // internal `toasts_` / `draw_toasts()` is dead code now (kept so the
+    // header-declared list compiles; nothing writes to it).
+    notify::info(std::move(msg));
 }
 
 std::vector<IPanel*> ClickGui::panels_enumerate() const {
@@ -142,6 +153,8 @@ void ClickGui::draw() {
     {
         ImDrawList* bgdl = ImGui::GetBackgroundDrawList();
         const float dim_a = 0.38f * alpha;
+        // dim_a already includes the fade alpha; no GetStyle multiplier
+        // here since this fires BEFORE PushStyleVar.
         bgdl->AddRectFilled(vp->WorkPos, vp->WorkPos + vp->WorkSize,
                             IM_COL32(12, 12, 14,
                                      static_cast<int>(dim_a * 255.0f)));
@@ -155,7 +168,8 @@ void ClickGui::draw() {
         ImGuiCond_FirstUseEver);
 
     ImGui::SetNextWindowSize({kWindowDefW, kWindowDefH}, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSizeConstraints({kWindowMinW, kWindowMinH}, {FLT_MAX, FLT_MAX});
+    ImGui::SetNextWindowSizeConstraints({kWindowMinW, kWindowMinH},
+                                        {kWindowMaxW, kWindowMaxH});
 
     ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoCollapse |
@@ -250,18 +264,20 @@ void ClickGui::draw_header() {
     const ImVec2 mark_tl = tl + ImVec2(theme::space_xl - 4.0f,
                                        (theme::header_h - mark_sz) * 0.5f);
     const ImVec2 mark_br = mark_tl + ImVec2(mark_sz, mark_sz);
-    const ImU32  mark_hi = IM_COL32(224, 224, 224, 255);   // #e0e0e0
-    const ImU32  mark_lo = IM_COL32(128, 128, 128, 255);   // #808080
+    // Use rgba_u32 instead of IM_COL32 so fade animations apply uniformly
+    // — IM_COL32 literals bypass the style alpha and cause the brand mark
+    // to stay opaque while everything else fades out.
+    const ImU32  mark_hi = theme::rgba_u32(224, 224, 224, 255);   // #e0e0e0
+    const ImU32  mark_lo = theme::rgba_u32(128, 128, 128, 255);   // #808080
     dl->AddRectFilledMultiColor(mark_tl, mark_br,
         mark_hi, mark_hi, mark_lo, mark_lo);
-    // Rounded corners are cosmetic — overlay a solid fill with rounding.
     dl->AddRect(mark_tl, mark_br, IM_COL32(0, 0, 0, 0), 5.0f, 0, 0.0f);
     // Dark chip centred.
     constexpr float chip_sz = 10.0f;
     const ImVec2 chip_tl = mark_tl + ImVec2((mark_sz - chip_sz) * 0.5f,
                                              (mark_sz - chip_sz) * 0.5f);
     dl->AddRectFilled(chip_tl, chip_tl + ImVec2(chip_sz, chip_sz),
-                      IM_COL32(0, 0, 0, 180), 2.0f);
+                      theme::rgba_u32(0, 0, 0, 180), 2.0f);
 
     const float text_x = mark_br.x + theme::space_sm;
     const float text_y = tl.y +
@@ -493,11 +509,11 @@ void ClickGui::draw_content() {
     // separation is obvious. Full rounded corners + hairline border give
     // it the "floating sheet" look of a premium settings UI.
     //
-    // v3 padding: 48 px horizontal, 40 px top, 36 px bottom. The card sits
-    // with a small margin around it (right/bottom 8 px gutter between the
-    // card edge and the root window border) so it visibly floats on the
-    // darker root bg.
-    constexpr float pad_x = 48.0f;
+    // Content padding. Walked back from 72 → 52 — the earlier bump to 72
+    // pushed every panel's content noticeably right of centre and the
+    // user called the layout "整体向右了". 52 is enough breathing room
+    // from the card edge without the content looking awkwardly inset.
+    constexpr float pad_x = 52.0f;
     constexpr float pad_y = 40.0f;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pad_x, pad_y));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::transparent);
@@ -508,9 +524,15 @@ void ClickGui::draw_content() {
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + v_inset);
     const float avail_h = ImGui::GetContentRegionAvail().y - v_inset;
 
-    // Passing `true` for border forces ImGui to respect WindowPadding. We made the
-    // border transparent above, so it's structurally padded but visually clean.
-    ImGui::BeginChild("##dxs_content", ImVec2(0, avail_h), true);
+    // ImGuiChildFlags_AlwaysUseWindowPadding is the one that actually
+    // enforces the WindowPadding pushed above for the child's content
+    // area. The old `bool border` overload only enables borders — it
+    // does NOT guarantee padding on every ImGui version we've tested.
+    // NoScrollbar hides the ugly default pill scrollbar; mouse wheel
+    // still scrolls.
+    ImGui::BeginChild("##dxs_content", ImVec2(0, avail_h),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding,
+                      ImGuiWindowFlags_NoScrollbar);
     {
         ImDrawList* content_dl = ImGui::GetWindowDrawList();
         const ImVec2 content_tl = ImGui::GetWindowPos();
@@ -536,37 +558,48 @@ void ClickGui::draw_content() {
             content_tl, content_tl + content_sz, theme::radius_lg);
     }
 
-    IPanel* active = nullptr;
-    for (auto& p : panels_) if (p->id() == selected_id_) { active = p.get(); break; }
-
-    if (active) {
-        // v3 page header — title 22 px, breadcrumb 11 px caption right
-        // underneath, 4 px gap. Margin of 24 px before panel content.
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface);
-        ImGui::SetWindowFontScale(theme::scale_title);
-        ImGui::TextUnformatted(std::string(active->title()).c_str());
-        ImGui::SetWindowFontScale(theme::scale_default);
-        ImGui::PopStyleColor();
-
-        ImGui::Dummy(ImVec2(0, 4.0f));
-        const std::string cat(active->category());
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_disabled);
-        ImGui::SetWindowFontScale(theme::scale_caption);
-        if (cat.empty()) {
-            ImGui::Text("%s", std::string(active->id()).c_str());
-        } else {
-            ImGui::Text("%s / %s", cat.c_str(), std::string(active->id()).c_str());
-        }
-        ImGui::SetWindowFontScale(theme::scale_default);
-        ImGui::PopStyleColor();
-
-        ImGui::Dummy(ImVec2(0, theme::space_xl));
-
-        active->draw();
+    // Ctrl+K takes over the content card — Command Palette renders in
+    // place of the active panel, no page header, no modal window. Esc
+    // closes it and the next frame restores the previously-selected
+    // panel naturally (selected_id_ is untouched while palette is open).
+    // `is_drawing()` covers the fade-out tail: after the user presses Esc
+    // we keep routing here until the palette's alpha decays to zero, so
+    // the exit animation actually gets frames to render.
+    if (command_palette_is_drawing()) {
+        command_palette_draw_inline();
     } else {
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
-        ImGui::TextUnformatted("No panel selected.");
-        ImGui::PopStyleColor();
+        IPanel* active = nullptr;
+        for (auto& p : panels_) if (p->id() == selected_id_) { active = p.get(); break; }
+
+        if (active) {
+            // v3 page header — title 22 px, breadcrumb 11 px caption right
+            // underneath, 4 px gap. Margin of 24 px before panel content.
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface);
+            ImGui::SetWindowFontScale(theme::scale_title);
+            ImGui::TextUnformatted(std::string(active->title()).c_str());
+            ImGui::SetWindowFontScale(theme::scale_default);
+            ImGui::PopStyleColor();
+
+            ImGui::Dummy(ImVec2(0, 4.0f));
+            const std::string cat(active->category());
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_disabled);
+            ImGui::SetWindowFontScale(theme::scale_caption);
+            if (cat.empty()) {
+                ImGui::Text("%s", std::string(active->id()).c_str());
+            } else {
+                ImGui::Text("%s / %s", cat.c_str(), std::string(active->id()).c_str());
+            }
+            ImGui::SetWindowFontScale(theme::scale_default);
+            ImGui::PopStyleColor();
+
+            ImGui::Dummy(ImVec2(0, theme::space_xl));
+
+            active->draw();
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+            ImGui::TextUnformatted("No panel selected.");
+            ImGui::PopStyleColor();
+        }
     }
 
     // Paint the reset reveal on top of whatever the active panel drew.
@@ -578,7 +611,15 @@ void ClickGui::draw_content() {
     ImGui::PopStyleVar();
 }
 
-void ClickGui::draw_toasts() {
+// Legacy draw_toasts is a no-op: the new Notifications module paints to
+// the viewport foreground list from Overlay::draw, outside the ClickGui
+// window, so toasts show even when the overlay is hidden and no longer
+// drift as new ones arrive.
+void ClickGui::draw_toasts() {}
+
+#if 0   // dead code — retained until the next sweep removes the unused
+        // Toast struct + toasts_ vector from the header.
+void ClickGui::draw_toasts_old() {
     const double now = ImGui::GetTime();
     std::erase_if(toasts_, [&](const Toast& t) { return t.fade_at <= now; });
     if (toasts_.empty()) return;
@@ -607,5 +648,6 @@ void ClickGui::draw_toasts() {
         pos = tl - ImVec2(0, theme::space_sm);
     }
 }
+#endif   // end dead-code guard
 
 }  // namespace dxs

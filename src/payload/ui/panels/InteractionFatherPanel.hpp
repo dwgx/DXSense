@@ -28,7 +28,7 @@ public:
     std::string_view id()       const override { return "interaction_father"; }
     std::string_view category() const override { return L("sidebar.lab"); }
     std::string_view title()    const override { return L("panel.interaction_father.title"); }
-    std::string_view icon()     const override { return ICON_SEARCH; }
+    std::string_view icon()     const override { return ICON_TAP; }
     void             draw()           override;
 
     void append(Interaction e);

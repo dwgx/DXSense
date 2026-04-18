@@ -819,18 +819,15 @@ void VulnLabPanel::draw() {
     const auto& cfg = state_.cfgs[static_cast<std::size_t>(
         std::clamp(cfg_selected_index_, 0, static_cast<int>(state_.cfgs.size()) - 1))];
 
-    const char* preview = k_cfg_labels[static_cast<std::size_t>(cfg_selected_index_)];
-    ImGui::SetNextItemWidth(std::min(avail_w, 300.0f));
-    if (ImGui::BeginCombo("##vuln_lab_cfg_sid", preview)) {
-        for (int i = 0; i < static_cast<int>(k_cfg_labels.size()); ++i) {
-            const bool selected = cfg_selected_index_ == i;
-            if (ImGui::Selectable(k_cfg_labels[static_cast<std::size_t>(i)], selected)) {
-                cfg_selected_index_ = i;
-                seed_cfg_inputs_from_selected();
-            }
-            if (selected) ImGui::SetItemDefaultFocus();
+    const int prev_cfg_index = cfg_selected_index_;
+    if (theme::combo("##vuln_lab_cfg_sid",
+                     k_cfg_labels.data(),
+                     static_cast<int>(k_cfg_labels.size()),
+                     &cfg_selected_index_,
+                     std::min(avail_w, 340.0f))) {
+        if (prev_cfg_index != cfg_selected_index_) {
+            seed_cfg_inputs_from_selected();
         }
-        ImGui::EndCombo();
     }
 
     // Current / default values in a clean table

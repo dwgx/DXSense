@@ -55,6 +55,7 @@ struct Entry {
     std::string id;
     std::string title;
     std::string category;
+    std::string icon;  // UTF-8 Fluent glyph — rendered in the tile/row.
 };
 
 std::vector<Entry> collect_entries() {
@@ -64,6 +65,7 @@ std::vector<Entry> collect_entries() {
         e.id.assign(p->id());
         e.title.assign(p->title());
         e.category.assign(p->category());
+        e.icon.assign(p->icon());
         out.push_back(std::move(e));
     }
     return out;
@@ -157,12 +159,22 @@ bool draw_quick_tile(ImVec2 tl, ImVec2 size, const Entry& e, bool first_frame) {
     dl->AddRectFilled(tl, tl + size, bg, theme::radius_sm);
     dl->AddRect(tl, tl + size, ed, theme::radius_sm, 0, 1.0f);
 
-    // Decorative glyph — a rounded dot so we don't depend on PUA icons.
-    const ImVec2 icon_c{tl.x + size.x * 0.5f, tl.y + 24.0f};
-    dl->AddCircle(icon_c, 7.0f,
-                  hovered ? theme::to_u32(theme::on_surface_variant)
-                          : theme::to_u32(theme::on_surface_muted),
-                  20, 1.4f);
+    // Panel icon — use the actual Fluent glyph the panel declared in icon().
+    // Was previously a decorative circle, which matched nothing the user
+    // registered in memory: every sidebar row had its own glyph, the search
+    // results had dots. Consistent now — same glyph here as in the sidebar.
+    const ImU32 icon_col = hovered
+        ? theme::to_u32(theme::on_surface)
+        : theme::to_u32(theme::on_surface_variant);
+    if (!e.icon.empty()) {
+        const ImVec2 ic_sz = ImGui::CalcTextSize(e.icon.c_str());
+        dl->AddText(ImVec2(tl.x + (size.x - ic_sz.x) * 0.5f,
+                           tl.y + 18.0f),
+                    icon_col, e.icon.c_str());
+    } else {
+        const ImVec2 icon_c{tl.x + size.x * 0.5f, tl.y + 24.0f};
+        dl->AddCircle(icon_c, 7.0f, icon_col, 20, 1.4f);
+    }
 
     // Title centred.
     const ImVec2 tsz = ImGui::CalcTextSize(e.title.c_str());
@@ -194,77 +206,57 @@ void command_palette_on_key(int vk, bool ctrl_down) {
     }
 }
 
+// The old top-level command_palette_draw() rendered the palette as a
+// centered modal window above the ClickGui. The user wanted it to live
+// inside the same content card as every other panel — Ctrl+K now feels
+// like navigating to a new sidebar page, not popping open a modal. The
+// body rendering moved into command_palette_draw_inline() and this
+// top-level call is a no-op kept for the existing Overlay::draw() callsite.
 void command_palette_draw() {
-    const float dt    = ImGui::GetIO().DeltaTime;
-    g_fade.half_life  = 0.10f;
+    // Intentionally empty. Inline palette is dispatched from ClickGui.
+}
+
+bool command_palette_is_drawing() {
+    // Drawing-still-in-flight while alpha hasn't fully decayed. The
+    // threshold matches what the draw function treats as "fully closed".
+    return g_open || g_fade.current > 0.01f;
+}
+
+void command_palette_draw_inline() {
+    // Slide + fade animation. Alpha rises from 0→1 when g_open flips true
+    // and falls back when it flips false; we keep rendering through the
+    // fall so the exit animation plays (the ClickGui is_drawing() guard
+    // keeps routing to us until alpha actually hits zero).
+    const float dt = ImGui::GetIO().DeltaTime;
+    g_fade.half_life = 0.09f;
     const float alpha = g_fade.step(g_open ? 1.0f : 0.0f, dt);
-    if (alpha < 0.002f && !g_open) return;
+    if (alpha < 0.01f && !g_open) return;
 
-    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    // Content slides up 12 px during fade-in, lands at rest at alpha=1.
+    // Combined with the alpha ramp it reads as "lifted from below" —
+    // matches Raycast / Spotlight's open-gesture vocabulary.
+    const float slide_y = (1.0f - alpha) * 12.0f;
 
-    // ── Scrim — clicking outside closes the palette. Implemented as a
-    //    full-viewport transparent window sitting under the palette
-    //    window so clicks on empty space are caught by its background
-    //    InvisibleButton.
-    {
-        ImGui::SetNextWindowPos(vp->WorkPos);
-        ImGui::SetNextWindowSize(vp->WorkSize);
-        ImGui::SetNextWindowBgAlpha(0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
-        ImGui::Begin("##dxs_cmdk_scrim", nullptr,
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-            ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoBringToFrontOnFocus);
-        ImDrawList* bg_dl = ImGui::GetWindowDrawList();
-        bg_dl->AddRectFilled(vp->WorkPos, vp->WorkPos + vp->WorkSize,
-            IM_COL32(8, 8, 10, static_cast<int>(alpha * 0.75f * 255.0f)));
-
-        // Click-to-close catcher.
-        ImGui::SetCursorScreenPos(vp->WorkPos);
-        ImGui::InvisibleButton("##cmdk_scrim_hit", vp->WorkSize);
-        if (ImGui::IsItemClicked()) close_command_palette();
-
-        ImGui::End();
-        ImGui::PopStyleVar(4);
-    }
-
-    // ── Content window ───────────────────────────────────────────────
-    constexpr float win_w = 640.0f;
-    constexpr float win_h = 520.0f;   // content grows freely inside
-
-    const ImVec2 centre  = vp->WorkPos + vp->WorkSize * 0.5f;
-    const float  lift    = (1.0f - alpha) * 20.0f;
-    const ImVec2 pos{centre.x - win_w * 0.5f,
-                     vp->WorkPos.y + vp->WorkSize.y * 0.16f + lift};
-
-    ImGui::SetNextWindowPos(pos);
-    ImGui::SetNextWindowSize(ImVec2(win_w, win_h));
-    ImGui::SetNextWindowBgAlpha(0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 
-    const ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar;
+    const ImVec2 win_tl_base = ImGui::GetWindowPos();
+    const ImVec2 win_tl{win_tl_base.x, win_tl_base.y + slide_y};
+    const ImVec2 win_sz = ImGui::GetWindowSize();
+    const float  win_w  = win_sz.x;
+    const float  win_h  = win_sz.y;
+    ImDrawList*  dl     = ImGui::GetWindowDrawList();
 
-    const bool opened = ImGui::Begin("##dxs_cmdk", nullptr, flags);
-    ImGui::PopStyleVar(4);
-    if (!opened) { ImGui::End(); return; }
-
-    ImDrawList* dl      = ImGui::GetWindowDrawList();
-    const ImVec2 win_tl = ImGui::GetWindowPos();
+    // Esc closes the palette — handled AFTER the alpha step so the
+    // close-animation always gets a frame to start (otherwise pressing
+    // Esc the same frame we were opening would zero everything at once).
+    if (g_open && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        close_command_palette();
+    }
 
     // ── Header block: icon square + caption ─────────────────────────
     constexpr float icon_sz = 56.0f;
     const ImVec2 icon_tl{win_tl.x + (win_w - icon_sz) * 0.5f,
-                         win_tl.y + 8.0f};
+                         win_tl.y + 20.0f};
     const ImVec2 icon_br = icon_tl + ImVec2(icon_sz, icon_sz);
     dl->AddRectFilled(icon_tl, icon_br,
         IM_COL32(255, 255, 255, 20),
@@ -433,20 +425,29 @@ void command_palette_draw() {
                 ImGui::GetWindowDrawList()->AddRectFilled(
                     rtl, rtl + rsz, bg, theme::radius_sm);
 
-                // Row content — dot marker + title left, ↵ hint right (when focused).
-                const ImVec2 dot_c{rtl.x + 16.0f, rtl.y + rsz.y * 0.5f};
-                ImGui::GetWindowDrawList()->AddCircle(dot_c, 4.0f,
-                    (focused || hovered)
-                        ? theme::to_u32(theme::on_surface)
-                        : theme::to_u32(theme::on_surface_muted),
-                    16, 1.2f);
+                // Row content — panel icon glyph on the left, title next to it,
+                // ↵ hint on the right when focused. Matches the sidebar look.
+                const ImU32 gcol = (focused || hovered)
+                    ? theme::to_u32(theme::on_surface)
+                    : theme::to_u32(theme::on_surface_muted);
+                if (!e.icon.empty()) {
+                    const ImVec2 icz = ImGui::CalcTextSize(e.icon.c_str());
+                    ImGui::GetWindowDrawList()->AddText(
+                        ImVec2(rtl.x + 14.0f,
+                               rtl.y + (rsz.y - icz.y) * 0.5f),
+                        gcol, e.icon.c_str());
+                } else {
+                    const ImVec2 dot_c{rtl.x + 16.0f, rtl.y + rsz.y * 0.5f};
+                    ImGui::GetWindowDrawList()->AddCircle(dot_c, 4.0f,
+                        gcol, 16, 1.2f);
+                }
 
                 const ImU32 tcol = (focused || hovered)
                     ? theme::to_u32(theme::on_surface)
                     : theme::to_u32(theme::on_surface_variant);
                 const ImVec2 tsz = ImGui::CalcTextSize(e.title.c_str());
                 ImGui::GetWindowDrawList()->AddText(
-                    ImVec2(rtl.x + 30.0f, rtl.y + (rsz.y - tsz.y) * 0.5f),
+                    ImVec2(rtl.x + 40.0f, rtl.y + (rsz.y - tsz.y) * 0.5f),
                     tcol, e.title.c_str());
 
                 if (focused) {
@@ -497,7 +498,7 @@ void command_palette_draw() {
         fx += ImGui::CalcTextSize(s.label).x + gap_slots;
     }
 
-    ImGui::End();
+    ImGui::PopStyleVar();   // ImGuiStyleVar_Alpha pushed at function top
 }
 
 }  // namespace dxs

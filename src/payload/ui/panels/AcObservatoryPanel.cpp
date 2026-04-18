@@ -386,10 +386,10 @@ void AcObservatoryPanel::draw() {
         selected_idx_ = -1;
     }
     ImGui::SameLine(0, theme::space_md);
-    ImGui::SetNextItemWidth(200);
+    ImGui::SetNextItemWidth(260);
     ImGui::InputTextWithHint("##ac_filter_func", "filter func", filter_func_, sizeof(filter_func_));
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(160);
+    ImGui::SetNextItemWidth(220);
     ImGui::InputTextWithHint("##ac_filter_dll", "dll: all/base/roostx/acf",
                              filter_dll_, sizeof(filter_dll_));
 

@@ -32,7 +32,9 @@
 #define ICON_PEOPLE      "\xEE\xA3\xB1"   // E8F1  People
 #define ICON_DOC         "\xEE\xA2\xA5"   // E8A5  Document
 #define ICON_MEMORY      "\xEE\xAA\xAD"   // EAAD  Memory / RAM
-#define ICON_CODE        "\xEE\xA5\x83"   // E943  ClosedCaption (reuse as code)
+// E756 CommandPrompt — a clean ">_" console glyph. Previously pointed at
+// E943 ClosedCaption (showed "CC" on the Python REPL sidebar row).
+#define ICON_CODE        "\xEE\x9D\x96"   // E756  CommandPrompt (>_)
 #define ICON_BOLT        "\xEE\xA5\x85"   // E945  LightningBolt
 #define ICON_MATRIX      "\xEE\xA4\x9C"   // E91C  FourRows (grid)
 #define ICON_TARGET      "\xEE\xB5\x9A"   // ED5A  CrossHair
@@ -48,7 +50,20 @@
 #define ICON_LAMP        "\xEE\xA4\x8F"   // E90F  Lightbulb
 #define ICON_CHEVRON_R   "\xEE\x9D\xAC"   // E76C  ChevronRight
 #define ICON_CHEVRON_D   "\xEE\x9D\xAD"   // E76D  ChevronDown
-#define ICON_HUD         "\xEE\xA5\xA8"   // E968  HomeSolid (HUD marker)
+// E977 TVMonitor — a physical monitor glyph. Previously ICON_HUD pointed
+// at E968 HomeSolid (a filled house) which made the HUD row look like an
+// extra "Overview" row. The monitor makes the purpose obvious.
+#define ICON_HUD         "\xEE\xA5\xB7"   // E977  TVMonitor
+// E9E9 TestBeaker — flask for the vulnerability/lab sections.
+#define ICON_FLASK       "\xEE\xA7\xA9"   // E9E9  TestBeaker
+// Several codepoints below previously pointed at speculative glyphs
+// (ED15 Puzzle, EC4A Speedometer, EA18 TouchPointer) that may render
+// as tofu / the wrong shape depending on the Segoe Fluent Icons build
+// on the user's machine. Re-pointed to codepoints we know exist in
+// every Fluent build.
+#define ICON_SPEEDO      "\xEE\xAA\xB8"   // EAB8  Radar (round-dial metaphor)
+#define ICON_TAP         "\xEE\x9E\x99"   // E799  Brush (interaction/edit gesture)
+#define ICON_PUZZLE      "\xEE\xA4\x82"   // E902  Layers (stacked, reads as "bundles")
 
 // Glyph range passed to ImGui's atlas builder. Pulls the PUA block that
 // Segoe Fluent Icons actually populates. Keeping it tight: just enough to

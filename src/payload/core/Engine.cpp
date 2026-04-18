@@ -7,6 +7,7 @@
 #include "RemoteBridge.hpp"
 #include "core/procedure/Loom.hpp"
 #include "core/procedure/procedures/AutoDecode.hpp"
+#include "core/procedure/procedures/EspVisual.hpp"
 #include "core/procedure/procedures/SpeedOverride.hpp"
 #include "game/CameraSampler.hpp"
 #include "game/GameMemory.hpp"
@@ -134,6 +135,7 @@ void Engine::start(void* this_module) {
     // card ordering within a domain.
     procedure::Loom::instance().bind<procedure::SpeedOverride>();
     procedure::Loom::instance().bind<procedure::AutoDecode>();
+    procedure::Loom::instance().bind<procedure::EspVisual>();
 
     procedure::Loom::instance().set_event_driver(
         [](const std::string& channel,

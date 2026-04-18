@@ -7,14 +7,17 @@
 #include "core/procedure/ProfileManager.hpp"
 #include "ui/framework/Animation.hpp"
 #include "ui/framework/ClickGui.hpp"
+#include "ui/framework/Notifications.hpp"
 #include "ui/framework/Theme.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <imgui.h>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -64,28 +67,36 @@ ImU32 phase_colour(Phase p) {
     }
 }
 
+// Phase chip — a single coloured dot with a glow halo. We dropped the
+// pill-with-label version because on narrow cards the word "Engaged" /
+// "Dormant" bled leftward into the expand-caret hit region and even the
+// card title. The colour alone carries the state: green=Engaged,
+// white=Priming, amber=Cooling, red=Faulted, grey=Dormant — and the
+// tooltip (see below) resolves the exact name for anyone who needs it.
 void draw_phase_chip(ImDrawList* dl, ImVec2 right_edge, Phase p) {
-    const std::string label(procedure::phase_label(p));
-    const ImVec2 sz = ImGui::CalcTextSize(label.c_str());
-    const float  pad_x = 8.0f, pad_y = 3.0f;
-    const ImVec2 tl{right_edge.x - (sz.x + pad_x * 2),
-                    right_edge.y - (sz.y + pad_y * 2) * 0.5f};
-    const ImVec2 br{right_edge.x, tl.y + sz.y + pad_y * 2};
-    const ImU32  col = phase_colour(p);
-    const ImU32  dot = col;
-    // Translucent pill + a 6-px dot at its leading edge.
-    ImU32 bg = (col & 0x00FFFFFFu) | (24u << 24);
-    dl->AddRectFilled(tl, br, bg, (br.y - tl.y) * 0.5f);
-    const ImVec2 dot_c{tl.x + pad_x, (tl.y + br.y) * 0.5f};
-    dl->AddCircleFilled(dot_c, 3.0f, dot, 12);
-    dl->AddText(ImVec2(tl.x + pad_x + 8.0f, tl.y + pad_y),
-                (col & 0xFFFFFFu) | (255u << 24),
-                label.c_str());
+    const ImU32 col = phase_colour(p);
+    const ImVec2 c{right_edge.x - 7.0f, right_edge.y};
+    // Halo — same colour at low alpha, pulled apart from the solid dot
+    // so it reads as a glow rather than just a bigger dot.
+    const ImU32 halo = (col & 0x00FFFFFFu) | (60u << 24);
+    dl->AddCircleFilled(c, 6.0f, halo, 18);
+    dl->AddCircleFilled(c, 3.5f, col,  18);
+}
+
+// Per-handle expansion state. Previously this was derived as
+// `ex_ch.current > 0.5f` each frame, which creates a feedback loop —
+// during the 0→1 rise after a click, the NEXT frame sees current < 0.5
+// and flips want_expand back to false, so the channel reverses toward
+// 0. The user called this the "果冻" (jelly) jiggle. Storing the target
+// explicitly decouples intent from animated state.
+std::unordered_map<std::string, bool>& expand_state() {
+    static std::unordered_map<std::string, bool> m;
+    return m;
 }
 
 // Draw one card for a procedure. Returns the height consumed (so callers
-// can advance the flow layout). Expansion state is held in the anim
-// registry keyed by the procedure handle.
+// can advance the flow layout). Expansion is driven by a per-handle bool
+// (see expand_state()) animated via an anim::Channel.
 float draw_card(Procedure& p, float width) {
     auto& loom = Loom::instance();
     const auto& id = p.manifest();
@@ -99,9 +110,7 @@ float draw_card(Procedure& p, float width) {
     auto& ex_ch = anim::channel(ch_key, 0.0f, 0.12f);
     ex_ch.half_life = 0.12f;
     const float dt = ImGui::GetIO().DeltaTime;
-    // Target is computed AFTER we read the click state this frame, a few
-    // lines below. Predict current-frame target as the previous-frame
-    // value; we step at the end.
+    bool& want_open = expand_state()[std::string(id.handle)];
     const float expanded = ex_ch.current;
 
     const float title_h = 40.0f;
@@ -117,9 +126,10 @@ float draw_card(Procedure& p, float width) {
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
-    // Surface
+    // Surface. rgba_u32 multiplies by GetStyle().Alpha so the procedure
+    // card fades in sync with the rest of the ClickGui on open/close.
     dl->AddRectFilled(tl, br,
-        IM_COL32(22, 22, 24, 245), theme::radius_lg);
+        theme::rgba_u32(22, 22, 24, 245), theme::radius_lg);
     dl->AddRect(tl, br, theme::to_u32(theme::outline),
         theme::radius_lg, 0, 1.0f);
     theme::draw_inner_highlight(tl, br, theme::radius_lg);
@@ -130,6 +140,12 @@ float draw_card(Procedure& p, float width) {
     bool tv = engaged_req;
     if (theme::toggle(std::string(id.handle).c_str(), &tv)) {
         loom.set_engaged(p, tv);
+        // Fire a viewport-level notification so the user gets visual
+        // confirmation even when mouse lingers on the toggle. Success
+        // (green) for engage, Info (grey) for disengage.
+        std::string title = std::string(id.title);
+        if (tv) notify::success(std::move(title), "engaged");
+        else    notify::info   (std::move(title), "disengaged");
     }
 
     // ── title + synopsis block ──
@@ -164,27 +180,59 @@ float draw_card(Procedure& p, float width) {
     const ImVec2 hit_br{br.x - 80.0f, tl.y + title_h + synopsis_h};
     ImGui::SetCursorScreenPos(hit_tl);
     ImGui::InvisibleButton("##expand", hit_br - hit_tl);
-    bool want_expand = ex_ch.current > 0.5f;
-    if (ImGui::IsItemClicked()) want_expand = !want_expand;
+    if (ImGui::IsItemClicked()) want_open = !want_open;
 
-    // Now step the expansion toward the resolved target.
-    ex_ch.step(want_expand ? 1.0f : 0.0f, dt);
+    // Draw a small caret glyph so the user knows the row is clickable.
+    // Rotates from ▸ (closed) to ▾ (open) based on animated expansion.
+    {
+        const ImVec2 caret_c{br.x - 90.0f, tl.y + 20.0f};
+        const float  t = std::clamp(expanded, 0.0f, 1.0f);
+        const ImU32 cc = theme::to_u32(theme::on_surface_muted);
+        // Two-stroke chevron; 90° interp between ▸ and ▾.
+        const float a = t * 1.5707963f;  // 0..π/2
+        const float cs = std::cos(a), sn = std::sin(a);
+        auto rot = [&](ImVec2 v) {
+            return ImVec2(v.x * cs - v.y * sn, v.x * sn + v.y * cs);
+        };
+        const ImVec2 a0 = caret_c + rot({-3.0f, -4.5f});
+        const ImVec2 a1 = caret_c + rot({ 3.0f,  0.0f});
+        const ImVec2 a2 = caret_c + rot({-3.0f,  4.5f});
+        dl->AddLine(a0, a1, cc, 1.6f);
+        dl->AddLine(a1, a2, cc, 1.6f);
+    }
+
+    // Step the expansion toward the explicit target — no longer derived
+    // from the animation's own value, so the rise can't flip itself mid-
+    // flight (the jiggle bug).
+    ex_ch.step(want_open ? 1.0f : 0.0f, dt);
 
     // ── expanded body: pins ──
     if (body_h > 1.0f) {
-        // Clip to body rect so the pin rows can't spill past the card
-        // even mid-animation.
-        const ImVec2 body_tl{tl.x + 18.0f, tl.y + title_h + synopsis_h + 6.0f};
-        const ImVec2 body_br{br.x - 18.0f, br.y - 8.0f};
-        dl->PushClipRect(body_tl, body_br, true);
+        // Pin anchor inside the card. The clip rect uses WIDER margins
+        // than the pin start-x so rounded-corner anti-aliasing doesn't
+        // get scissored off the left/right edges of segmented tracks
+        // and slider frames — user described that clipping as "最左边
+        // 都被吃掉了一块". Vertical clip stays tight so the slide-in
+        // animation still hides content behind the card edge.
+        const ImVec2 body_tl{tl.x + 14.0f, tl.y + title_h + synopsis_h + 6.0f};
+        const ImVec2 body_br{br.x - 14.0f, br.y - 8.0f};
+        const ImVec2 clip_tl{tl.x + 2.0f,  body_tl.y};
+        const ImVec2 clip_br{br.x - 2.0f,  body_br.y};
+        dl->PushClipRect(clip_tl, clip_br, true);
 
         ImGui::SetCursorScreenPos(body_tl);
         float y_cursor = body_tl.y;
         for (auto* pin : p.pins()) {
-            if (y_cursor + pin_row_h > body_br.y) break;
+            if (y_cursor > body_br.y - 12.0f) break;
             ImGui::SetCursorScreenPos(ImVec2(body_tl.x, y_cursor));
             pin->draw();
-            y_cursor += pin_row_h;
+            // Measure ACTUAL height used — PinChoice draws caption + a
+            // 28-px segmented bar (~41 px total) but pin_row_h is 34,
+            // so fixed-increment positioning caused the next pin's label
+            // to overlap the segmented bar. Read cursor y_after and use
+            // the max of nominal advance vs what the pin really drew.
+            const float y_after = ImGui::GetCursorScreenPos().y;
+            y_cursor = std::max(y_cursor + pin_row_h, y_after + 4.0f);
         }
 
         // bespoke additions (procedure's own draw_inspector())
@@ -210,7 +258,8 @@ namespace {
 int  g_domain_tab = 0;
 bool g_domain_tab_loaded = false;
 
-// Profile bar state — a single "Save As" flyout modal + the name buffer.
+#if 0   // Profile bar moved to ProfilesPanel; retained here as comment-
+        // only reference until the next cleanup pass removes it entirely.
 bool g_save_as_open = false;
 char g_save_as_name[64] = {};
 char g_save_as_error[96] = {};
@@ -334,7 +383,9 @@ void draw_profile_bar() {
             ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Save current configuration as a new profile");
         ImGui::Dummy(ImVec2(0, 6));
-        ImGui::SetNextItemWidth(320.0f);
+        // Wider so long names fit without internal scrolling; capped at
+        // sizeof(buf)-1 chars of visibility regardless.
+        ImGui::SetNextItemWidth(460.0f);
         ImGui::InputTextWithHint("##prof_name", "profile name…",
             g_save_as_name, sizeof(g_save_as_name));
         if (g_save_as_error[0]) {
@@ -366,6 +417,7 @@ void draw_profile_bar() {
     ImGui::SetCursorScreenPos(ImVec2(tl.x, br.y + theme::space_md));
     ImGui::Dummy(ImVec2(w, 0));
 }
+#endif   // dead-code guard for removed draw_profile_bar
 }
 
 void ModulesPanel::draw() {
@@ -376,8 +428,9 @@ void ModulesPanel::draw() {
         g_domain_tab_loaded = true;
     }
 
-    // Profile management bar at the very top of the panel.
-    draw_profile_bar();
+    // Profile management used to live at the top of this panel; it's now
+    // its own ProfilesPanel in the sidebar (Scripting group) so Modules
+    // stays dedicated to the per-procedure cards.
 
     // Domain selector — segmented control across the top.
     std::array<const char*, kDomainOrder.size()> labels{};

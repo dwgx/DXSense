@@ -190,6 +190,17 @@ inline ImU32 to_u32(ImVec4 c) {
 }
 inline ImVec4 with_alpha(ImVec4 c, float a) { c.w *= a; return c; }
 
+// RGBA-in-bytes → ImU32, multiplied by the current GetStyle().Alpha so the
+// colour respects in-flight fade animations. Use this INSTEAD of IM_COL32()
+// literals inside anything that can fade in/out — otherwise elements drawn
+// with a plain IM_COL32 stay at full opacity while theme::to_u32 calls
+// fade, producing the "layer-by-layer" disappearance the user flagged.
+inline ImU32 rgba_u32(int r, int g, int b, int a) {
+    float scale = 1.0f;
+    if (ImGui::GetCurrentContext()) scale = ImGui::GetStyle().Alpha;
+    return IM_COL32(r, g, b, static_cast<int>(a * scale));
+}
+
 void draw_shadow(ImVec2 tl, ImVec2 br, float rounding, float extent = 8.0f);
 
 // 1 px inner rim — brighter on top, fainter on bottom. The "light from
@@ -335,6 +346,20 @@ bool segmented(const char* id,
 // Section divider + caption — the standard way to group controls inside a
 // panel. Draws a hairline rule with the caption floated above it.
 void section_divider(const char* caption);
+
+// Custom dropdown — replacement for ImGui::BeginCombo. Rendered entirely
+// through DrawList so the button + chevron + popup read as one coherent
+// control matching the rest of the palette (radius_md fill, outline @ 6%
+// alpha, silver chevron, hover-only item highlight).
+//
+// Returns true the frame the selection changes. If `cfg_key` is non-empty
+// the selected index is auto-hydrated from Config on first paint and
+// persisted on change (same contract as every other theme:: widget).
+bool combo(const char* id,
+           const char* const* options, int count,
+           int* selected,
+           float width = 0.0f,
+           std::string_view cfg_key = {});
 
 // Inline sparkline — small ring-buffer graph for dashboard tiles. Draws a
 // filled gradient under the line + end-of-series dot with halo. `col` is

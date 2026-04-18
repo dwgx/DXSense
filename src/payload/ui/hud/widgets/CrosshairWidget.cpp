@@ -36,15 +36,18 @@ void CrosshairWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
 }
 
 void CrosshairWidget::draw_settings() {
-    if (ImGui::Combo("style##xhair", &style_, "Dot\0Cross\0Circle+Dot\0")) {
-        Config::instance().set_int("hud.crosshair.style", style_);
+    static constexpr const char* k_style_labels[] = {"Dot", "Cross", "Circle+Dot"};
+    if (theme::combo("##xhair_style", k_style_labels, 3, &style_, 200.0f,
+                     "hud.crosshair.style")) {
+        // combo auto-persists via cfg_key; fall-through.
     }
     if (ImGui::SliderFloat("thickness##xhair", &thick_, 0.5f, 4.0f, "%.1f")) {
         Config::instance().set_float("hud.crosshair.thick", thick_);
     }
-    if (ImGui::Combo("colour##xhair", &colour_idx_,
-                     "amber\0green\0blue\0red\0white\0black\0")) {
-        Config::instance().set_int("hud.crosshair.colour", colour_idx_);
+    if (theme::combo("##xhair_colour", kColourNames,
+                     IM_ARRAYSIZE(kColourNames), &colour_idx_, 200.0f,
+                     "hud.crosshair.colour")) {
+        // combo auto-persists via cfg_key.
     }
 }
 

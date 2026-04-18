@@ -11,7 +11,7 @@ public:
     std::string_view id()       const override { return "modules"; }
     std::string_view category() const override { return L("sidebar.functional"); }
     std::string_view title()    const override { return L("panel.modules.title"); }
-    std::string_view icon()     const override { return ICON_HUD; }
+    std::string_view icon()     const override { return ICON_PUZZLE; }
     void             draw()           override;
 };
 

@@ -93,7 +93,9 @@ void MatrixPanel::draw() {
     const float  gap    = theme::space_lg;
     const float  left_w = std::max(1.0f, (avail.x - gap) * 0.6f);
 
-    if (ImGui::BeginChild("##matrix_left", ImVec2(left_w, avail.y), false)) {
+    if (ImGui::BeginChild("##matrix_left", ImVec2(left_w, avail.y), false,
+                          ImGuiWindowFlags_NoScrollbar |
+                          ImGuiWindowFlags_NoScrollWithMouse)) {
         const float caption_h = ImGui::GetTextLineHeightWithSpacing();
         const float canvas_h = std::max(
             140.0f, ImGui::GetContentRegionAvail().y - caption_h - theme::space_sm);
@@ -138,7 +140,8 @@ void MatrixPanel::draw() {
 
     ImGui::SameLine(0.0f, gap);
 
-    if (ImGui::BeginChild("##matrix_right", ImVec2(0.0f, avail.y), false)) {
+    if (ImGui::BeginChild("##matrix_right", ImVec2(0.0f, avail.y), false,
+                          ImGuiWindowFlags_NoScrollbar)) {
         theme::section_divider("VIEW MATRIX");
         ImGui::Dummy(ImVec2(0.0f, theme::space_sm));
         draw_matrix_grid(snap.view.data(), snap.camera_ready);

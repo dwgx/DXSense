@@ -19,7 +19,7 @@ public:
     std::string_view id()       const override { return "vuln_lab"; }
     std::string_view category() const override { return L("sidebar.lab"); }
     std::string_view title()    const override { return L("panel.vuln_lab.title"); }
-    std::string_view icon()     const override { return ICON_WARNING; }
+    std::string_view icon()     const override { return ICON_FLASK; }
     void             draw()           override;
     using Pair = std::pair<std::string, std::string>;
     struct CfgTuple {

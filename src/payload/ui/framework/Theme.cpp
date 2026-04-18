@@ -160,8 +160,15 @@ void apply() {
 
     c[ImGuiCol_TextSelectedBg]        = primary_container;
     c[ImGuiCol_DragDropTarget]        = on_surface;
-    c[ImGuiCol_NavCursor]             = primary_edge;
-    c[ImGuiCol_NavWindowingHighlight] = primary_edge;
+    // Nav cursor paints a sharp-cornered rectangle around the currently
+    // focused item — on grid-of-cards panels (Overview, HUD) it lands
+    // on the card's hit InvisibleButton and reads as a faint square
+    // behind our rounded surface. Transparent kills the artefact without
+    // breaking tab/keyboard routing (focus state still tracks; it's
+    // just invisible). If we ever add tab-driven navigation this can
+    // be revisited with a rounded custom cursor.
+    c[ImGuiCol_NavCursor]             = transparent;
+    c[ImGuiCol_NavWindowingHighlight] = transparent;
     c[ImGuiCol_NavWindowingDimBg]     = {0, 0, 0, 0.35f};
     c[ImGuiCol_ModalWindowDimBg]      = {0, 0, 0, 0.55f};
 }
@@ -690,7 +697,11 @@ bool checkbox(const char* label, bool* v) {
 
     // Full-row hit target (box + gap + label). Clicks anywhere on the row
     // flip the value — matches Apple / macOS / iOS checkbox ergonomics.
+    // SetNextItemAllowOverlap before the hit button: the ESP widget
+    // edit popup packs 3 theme::checkbox calls on one SameLine row, and
+    // without overlap opt-in only the LAST one drawn registered clicks.
     const ImVec2 hit_sz(sz + gap + label_sz.x, line_h);
+    ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##cb", hit_sz);
     const bool clicked = ImGui::IsItemClicked();
     const bool hovered = ImGui::IsItemHovered();
@@ -977,18 +988,26 @@ bool segmented(const char* id,
 
     ImGui::PushID(id);
 
-    // Row geometry — fit segments to the full content width.
-    constexpr float pad_x = 14.0f;
+    // Row geometry — each segment's width hugs its own label. Previous
+    // implementation divided the row evenly, which made the selected
+    // pill sit in a fixed-width cell that was often much wider than the
+    // word. User wanted the active pill to follow the text's actual
+    // footprint (the DevTools tab request). Measure each label and lay
+    // them out at variable widths.
+    constexpr float pad_x = 16.0f;
     constexpr float h     = 28.0f;
-    const float    avail  = ImGui::GetContentRegionAvail().x;
 
-    // Measure each label to size the row; clamp minimum.
-    float total_label_w = 0.0f;
-    for (int i = 0; i < count; ++i)
-        total_label_w += ImGui::CalcTextSize(options[i]).x;
-    const float target_w = std::max(total_label_w + pad_x * 2.0f * count,
-                                    avail > 200.0f ? std::min(avail, 420.0f) : 240.0f);
-    const float seg_w = target_w / static_cast<float>(count);
+    // Per-segment widths (text + 2*pad) and cumulative x offsets.
+    struct SegGeom { float w; float x_start; };
+    std::vector<SegGeom> seg(count);
+    float running = 0.0f;
+    for (int i = 0; i < count; ++i) {
+        const float tw = ImGui::CalcTextSize(options[i]).x;
+        seg[i].w       = tw + pad_x * 2.0f;
+        seg[i].x_start = running;
+        running       += seg[i].w;
+    }
+    const float target_w = running;
 
     const ImVec2 tl = ImGui::GetCursorScreenPos();
     const ImVec2 br = tl + ImVec2(target_w, h);
@@ -999,27 +1018,35 @@ bool segmented(const char* id,
         to_u32(ImVec4{0.10f, 0.10f, 0.105f, 1.0f}), h * 0.5f);
     dl->AddRect(tl, br, to_u32(outline), h * 0.5f, 0, 1.0f);
 
-    // Animate the silver indicator between segments.
+    // Animate the silver indicator between segments — both x and width
+    // now animate because segment widths differ.
     const float dt = ImGui::GetIO().DeltaTime;
     char k[48];
     std::snprintf(k, sizeof(k), "seg.%u", ImGui::GetID(id));
-    auto& ch = anim::channel(k, static_cast<float>(*selected), 0.08f);
-    ch.half_life = 0.08f;
-    const float ind_x = tl.x + ch.step(static_cast<float>(*selected), dt) * seg_w;
+    auto& ch_x = anim::channel(std::string(k) + ".x",
+        seg[std::clamp(*selected, 0, count - 1)].x_start, 0.08f);
+    auto& ch_w = anim::channel(std::string(k) + ".w",
+        seg[std::clamp(*selected, 0, count - 1)].w, 0.08f);
+    ch_x.half_life = 0.08f;
+    ch_w.half_life = 0.08f;
+    const int sel_clamp = std::clamp(*selected, 0, count - 1);
+    const float ind_x = tl.x + ch_x.step(seg[sel_clamp].x_start, dt);
+    const float ind_w =           ch_w.step(seg[sel_clamp].w,       dt);
     constexpr float pill_inset = 3.0f;
     dl->AddRectFilled(
-        ImVec2(ind_x + pill_inset, tl.y + pill_inset),
-        ImVec2(ind_x + seg_w - pill_inset, br.y - pill_inset),
+        ImVec2(ind_x + pill_inset,         tl.y + pill_inset),
+        ImVec2(ind_x + ind_w - pill_inset, br.y - pill_inset),
         to_u32(ImVec4{0.860f, 0.860f, 0.870f, 1.0f}),
         (h - pill_inset * 2.0f) * 0.5f);
 
     // Hit-test + label each segment.
     bool changed = false;
     for (int i = 0; i < count; ++i) {
-        const ImVec2 seg_tl = ImVec2(tl.x + seg_w * i, tl.y);
+        const ImVec2 seg_tl = ImVec2(tl.x + seg[i].x_start, tl.y);
         ImGui::SetCursorScreenPos(seg_tl);
         ImGui::PushID(i);
-        ImGui::InvisibleButton("##seg", ImVec2(seg_w, h));
+        ImGui::SetNextItemAllowOverlap();
+        ImGui::InvisibleButton("##seg", ImVec2(seg[i].w, h));
         const bool clicked = ImGui::IsItemClicked();
         ImGui::PopID();
 
@@ -1028,7 +1055,7 @@ bool segmented(const char* id,
             ? ImVec4{0.05f, 0.06f, 0.07f, 1.0f}
             : on_surface_variant;
         const ImVec2 lsz = ImGui::CalcTextSize(options[i]);
-        const ImVec2 lpos = seg_tl + ImVec2((seg_w - lsz.x) * 0.5f,
+        const ImVec2 lpos = seg_tl + ImVec2((seg[i].w - lsz.x) * 0.5f,
                                              (h - lsz.y) * 0.5f);
         dl->AddText(lpos, to_u32(tcol), options[i]);
 
@@ -1040,9 +1067,15 @@ bool segmented(const char* id,
         }
     }
 
-    // Commit layout
-    ImGui::SetCursorScreenPos(ImVec2(tl.x, br.y));
-    ImGui::Dummy(ImVec2(target_w, 0.0f));
+    // Commit layout. Previous version issued Dummy(w, 0) which doesn't
+    // reserve vertical space — the next widget would start AT the same
+    // Y as the segmented row's top, and its label drew ON TOP of the
+    // row (the "Bottom | Top | Centre | Crosshair" row overlapping the
+    // silhouette-opacity slider label was this). Reserve the full row
+    // geometry via a normal Dummy so the ItemAdd / ItemSize contract
+    // advances the layout cursor correctly.
+    ImGui::SetCursorScreenPos(tl);
+    ImGui::Dummy(ImVec2(target_w, h));
 
     ImGui::PopID();
     return changed;
@@ -1273,6 +1306,190 @@ void sparkline(const float* data, int count, ImVec2 size, ImVec4 col) {
     dl->AddCircleFilled(end_c, 2.4f, to_u32(col),  16);
 
     ImGui::Dummy(size);
+}
+
+// ─── Custom dropdown ─────────────────────────────────────────────────────
+//
+// ImGui's BeginCombo paints a separate chevron block on the right of the
+// frame — it reads as two glued rectangles with mismatched corner radii,
+// which jars with the rest of the palette. This implementation paints the
+// whole control through the DrawList:
+//   * button: one rounded fill + 1 px outline, chevron drawn as two
+//     CalcTextSize-free line segments so the glyph is always pixel-exact
+//   * popup: our own ImGui::Begin[Popup] window with surface_ctn_high fill
+//     + radius_md corners + 6 px inner padding
+//   * items: hover-only fill with radius_sm; current selection reads
+//     through a faint left dot instead of a full highlight (keeps the
+//     list quiet)
+//
+// Long labels are clipped rather than ellipsed — CalcTextSize-based
+// ellipsis costs an extra pass per frame and the clip ends cleanly inside
+// the rounded frame.
+
+bool combo(const char* id,
+           const char* const* options, int count,
+           int* selected,
+           float width,
+           std::string_view cfg_key) {
+    if (!options || count <= 0 || !selected) return false;
+    if (hydrate_once(cfg_key))
+        *selected = Config::instance().get_int(cfg_key, *selected);
+
+    ImGui::PushID(id);
+
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float btn_w = (width > 0.0f) ? width
+                      : (avail > 220.0f ? std::min(avail, 360.0f)
+                                        : std::max(avail, 200.0f));
+    const float btn_h = control_h_md;
+
+    const ImVec2 btn_tl = ImGui::GetCursorScreenPos();
+    const ImVec2 btn_br = btn_tl + ImVec2(btn_w, btn_h);
+    ImGui::InvisibleButton("##cb_hit", ImVec2(btn_w, btn_h));
+    const bool clicked = ImGui::IsItemClicked();
+    const bool hovered = ImGui::IsItemHovered();
+    const bool open_popup_this_frame = clicked;
+
+    const char* popup_id = "##cb_popup";
+    if (open_popup_this_frame) ImGui::OpenPopup(popup_id);
+
+    const bool is_open = ImGui::IsPopupOpen(popup_id);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec4 fill_col = is_open ? surface_ctn_high
+                         : hovered   ? surface_ctn
+                                     : surface_ctn_low;
+    dl->AddRectFilled(btn_tl, btn_br, to_u32(fill_col), radius_md);
+    dl->AddRect(btn_tl, btn_br,
+                to_u32(is_open ? accent_edge : outline),
+                radius_md, 0, 1.0f);
+
+    const int idx = std::clamp(*selected, 0, count - 1);
+    const char* label = options[idx];
+
+    constexpr float pad_x     = 14.0f;
+    constexpr float chev_slot = 22.0f;
+    const float label_right   = btn_br.x - chev_slot;
+
+    dl->PushClipRect(ImVec2(btn_tl.x + pad_x, btn_tl.y),
+                     ImVec2(label_right,      btn_br.y), true);
+    const ImVec2 lsz = ImGui::CalcTextSize(label);
+    dl->AddText(ImVec2(btn_tl.x + pad_x,
+                       btn_tl.y + (btn_h - lsz.y) * 0.5f),
+                to_u32(on_surface), label);
+    dl->PopClipRect();
+
+    // Chevron — two line segments forming a ∨. Flips to ∧ when open.
+    const ImVec2 cv{btn_br.x - 14.0f, (btn_tl.y + btn_br.y) * 0.5f};
+    constexpr float cw = 4.0f;
+    constexpr float ch = 2.8f;
+    const ImU32 ccol = to_u32(is_open ? on_surface : on_surface_muted);
+    if (is_open) {
+        dl->AddLine({cv.x - cw, cv.y + ch * 0.5f},
+                    {cv.x,      cv.y - ch * 0.5f}, ccol, 1.6f);
+        dl->AddLine({cv.x,      cv.y - ch * 0.5f},
+                    {cv.x + cw, cv.y + ch * 0.5f}, ccol, 1.6f);
+    } else {
+        dl->AddLine({cv.x - cw, cv.y - ch * 0.5f},
+                    {cv.x,      cv.y + ch * 0.5f}, ccol, 1.6f);
+        dl->AddLine({cv.x,      cv.y + ch * 0.5f},
+                    {cv.x + cw, cv.y - ch * 0.5f}, ccol, 1.6f);
+    }
+
+    // Popup — positioned flush with the button and exactly button-wide so
+    // it reads as an extension of the control rather than a detached tray.
+    ImGui::SetNextWindowPos(ImVec2(btn_tl.x, btn_br.y + 4.0f));
+    ImGui::SetNextWindowSize(ImVec2(btn_w, 0.0f));
+
+    // Popup styling. Wider horizontal padding (10 instead of 6) so the
+    // selection glyph on the left of each row isn't visually hugging the
+    // popup edge. Selectable's own Header* colours are set transparent —
+    // we paint the row background ourselves below to keep full control
+    // of the idle / hovered / selected states, which the prior version
+    // conflated into a single silver fill that read as "kinda selected,
+    // kinda hovered, kinda broken" ("圆不圆方不方").
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 6.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, radius_md);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 2.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, radius_sm);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, surface_ctn_high);
+    ImGui::PushStyleColor(ImGuiCol_Border,  outline);
+    ImGui::PushStyleColor(ImGuiCol_Header,        transparent);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, transparent);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive,  transparent);
+
+    bool changed = false;
+    if (ImGui::BeginPopup(popup_id)) {
+        const float item_w = btn_w - 20.0f;   // minus horizontal window padding (10*2)
+        constexpr float item_h = 28.0f;
+        for (int i = 0; i < count; ++i) {
+            ImGui::PushID(i);
+            const bool is_sel = (i == idx);
+            const ImVec2 it_tl = ImGui::GetCursorScreenPos();
+            const ImVec2 it_br = it_tl + ImVec2(item_w, item_h);
+
+            // Selectable provides the hit rect + keyboard nav. We render
+            // the visible chrome ourselves below so hover / selected
+            // states are clearly distinct.
+            if (ImGui::Selectable("##it", false,
+                                  ImGuiSelectableFlags_None,
+                                  ImVec2(item_w, item_h))) {
+                if (!is_sel) {
+                    *selected = i;
+                    changed = true;
+                    if (!cfg_key.empty())
+                        Config::instance().set_int(cfg_key, i);
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            const bool item_hovered = ImGui::IsItemHovered();
+
+            ImDrawList* pdl = ImGui::GetWindowDrawList();
+
+            // Background — explicit per-state so each reads distinctly.
+            //   idle:      none
+            //   hovered:   subtle surface_ctn_highest
+            //   selected:  a brighter accent_soft fill (always visible
+            //              even when the cursor is elsewhere)
+            if (is_sel) {
+                pdl->AddRectFilled(it_tl, it_br,
+                    to_u32(accent_soft), radius_sm);
+            } else if (item_hovered) {
+                pdl->AddRectFilled(it_tl, it_br,
+                    to_u32(surface_ctn_highest), radius_sm);
+            }
+
+            // Selected item gets a small check glyph on the left —
+            // makes the state unambiguous even if the bg fill is
+            // faint. Unselected rows leave the left slot empty so
+            // labels align consistently.
+            constexpr float gutter = 18.0f;
+            const float cy = (it_tl.y + it_br.y) * 0.5f;
+            if (is_sel) {
+                const ImU32 col = to_u32(on_surface);
+                const ImVec2 p1(it_tl.x + 6.0f,  cy + 1.0f);
+                const ImVec2 p2(it_tl.x + 9.0f,  cy + 4.0f);
+                const ImVec2 p3(it_tl.x + 14.0f, cy - 3.0f);
+                pdl->AddLine(p1, p2, col, 1.6f);
+                pdl->AddLine(p2, p3, col, 1.6f);
+            }
+
+            const ImVec2 tsz = ImGui::CalcTextSize(options[i]);
+            pdl->AddText(
+                ImVec2(it_tl.x + gutter,
+                       it_tl.y + (item_h - tsz.y) * 0.5f),
+                to_u32(is_sel || item_hovered ? on_surface : on_surface_variant),
+                options[i]);
+            ImGui::PopID();
+        }
+        ImGui::EndPopup();
+    }
+
+    ImGui::PopStyleColor(5);
+    ImGui::PopStyleVar(4);
+
+    ImGui::PopID();
+    return changed;
 }
 
 // ─── Section divider ─────────────────────────────────────────────────────
