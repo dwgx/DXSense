@@ -1,6 +1,7 @@
 #include "ClickGui.hpp"
 
 #include "Animation.hpp"
+#include "CommandPalette.hpp"
 #include "Icons.hpp"
 #include "Theme.hpp"
 #include "ui/Overlay.hpp"
@@ -16,8 +17,11 @@ namespace dxs {
 
 namespace {
 constexpr double kToastDurationSec = 2.0;
-constexpr float  kWindowMinW       = 900.0f;
-constexpr float  kWindowMinH       = 560.0f;
+// v3 default geometry.
+constexpr float  kWindowDefW       = 1100.0f;
+constexpr float  kWindowDefH       =  720.0f;
+constexpr float  kWindowMinW       =  960.0f;
+constexpr float  kWindowMinH       =  600.0f;
 }
 
 ClickGui& ClickGui::instance() {
@@ -41,6 +45,13 @@ void ClickGui::select(std::string_view panel_id) {
 
 void ClickGui::toast(std::string msg) {
     toasts_.push_back({std::move(msg), ImGui::GetTime() + kToastDurationSec});
+}
+
+std::vector<IPanel*> ClickGui::panels_enumerate() const {
+    std::vector<IPanel*> out;
+    out.reserve(panels_.size());
+    for (const auto& p : panels_) out.push_back(p.get());
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +154,7 @@ void ClickGui::draw() {
                              theme::space_xxl + theme::space_sm),
         ImGuiCond_FirstUseEver);
 
-    ImGui::SetNextWindowSize({1060, 680}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({kWindowDefW, kWindowDefH}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints({kWindowMinW, kWindowMinH}, {FLT_MAX, FLT_MAX});
 
     ImGuiWindowFlags flags =
@@ -223,17 +234,34 @@ void ClickGui::draw_header() {
     const ImVec2 tl      = ImGui::GetWindowPos();
     const float  avail_w = ImGui::GetWindowSize().x;
 
-    // Header fill — one step lighter than the root so it reads as a toolbar.
+    // Header fill — one step lighter than the root, 80% alpha for the
+    // v3 frosted-toolbar feel. Rounded top only (bottom is flush to the
+    // hairline separator under the header).
+    ImVec4 header_bg = theme::surface;
+    header_bg.w = 0.80f;
     dl->AddRectFilled(tl, tl + ImVec2(avail_w, theme::header_h),
-                      theme::to_u32(theme::surface),
+                      theme::to_u32(header_bg),
                       theme::radius_xl, ImDrawFlags_RoundCornersTop);
 
-    // Brand block: small square mark + wordmark + subtitle.
-    const ImVec2 mark_tl = tl + ImVec2(theme::space_lg, (theme::header_h - 18.0f) * 0.5f);
-    const ImVec2 mark_br = mark_tl + ImVec2(18.0f, 18.0f);
-    dl->AddRectFilled(mark_tl, mark_br, theme::to_u32(theme::on_surface), 4.0f);
-    dl->AddRectFilled(mark_tl + ImVec2(4, 4), mark_br - ImVec2(4, 4),
-                      theme::to_u32(theme::surface), 2.0f);
+    // Brand block — v3: 20×20 silver-gradient square with a 10×10 dark
+    // chip inside. Drawn via two rects (the gradient is faked with two
+    // corner colours on AddRectFilledMultiColor).
+    constexpr float mark_sz = 20.0f;
+    const ImVec2 mark_tl = tl + ImVec2(theme::space_xl - 4.0f,
+                                       (theme::header_h - mark_sz) * 0.5f);
+    const ImVec2 mark_br = mark_tl + ImVec2(mark_sz, mark_sz);
+    const ImU32  mark_hi = IM_COL32(224, 224, 224, 255);   // #e0e0e0
+    const ImU32  mark_lo = IM_COL32(128, 128, 128, 255);   // #808080
+    dl->AddRectFilledMultiColor(mark_tl, mark_br,
+        mark_hi, mark_hi, mark_lo, mark_lo);
+    // Rounded corners are cosmetic — overlay a solid fill with rounding.
+    dl->AddRect(mark_tl, mark_br, IM_COL32(0, 0, 0, 0), 5.0f, 0, 0.0f);
+    // Dark chip centred.
+    constexpr float chip_sz = 10.0f;
+    const ImVec2 chip_tl = mark_tl + ImVec2((mark_sz - chip_sz) * 0.5f,
+                                             (mark_sz - chip_sz) * 0.5f);
+    dl->AddRectFilled(chip_tl, chip_tl + ImVec2(chip_sz, chip_sz),
+                      IM_COL32(0, 0, 0, 180), 2.0f);
 
     const float text_x = mark_br.x + theme::space_sm;
     const float text_y = tl.y +
@@ -298,12 +326,43 @@ void ClickGui::draw_header() {
     }
 
     const ImVec2 fps_sz = ImGui::CalcTextSize(fps_text);
-    ImGui::SetCursorScreenPos(ImVec2(
-        close_pos.x - theme::space_lg - fps_sz.x,
+    const float fps_x = close_pos.x - theme::space_lg - fps_sz.x;
+    ImGui::SetCursorScreenPos(ImVec2(fps_x,
         tl.y + (theme::header_h - fps_sz.y) * 0.5f));
     ImGui::PushStyleColor(ImGuiCol_Text, fps_col);
     ImGui::TextUnformatted(fps_text);
     ImGui::PopStyleColor();
+
+    // Cmd+K search chip — sits to the left of the FPS readout. Clicking
+    // opens the command palette; also shows the shortcut hint. The actual
+    // palette lives in CommandPalette.cpp / is opened from there.
+    const char* hint_short = "Ctrl+K";
+    const char* hint_label = "Search";
+    const ImVec2 short_sz = ImGui::CalcTextSize(hint_short);
+    const ImVec2 lbl_sz   = ImGui::CalcTextSize(hint_label);
+    const float  pad_x = 10.0f, pad_y = 4.0f, gap = 6.0f;
+    const float  chip_w = pad_x * 2 + short_sz.x + gap + lbl_sz.x;
+    const float  chip_h = short_sz.y + pad_y * 2;
+    const ImVec2 search_tl{fps_x - theme::space_md - chip_w,
+                           tl.y + (theme::header_h - chip_h) * 0.5f};
+    const ImVec2 search_br = search_tl + ImVec2(chip_w, chip_h);
+    ImGui::SetCursorScreenPos(search_tl);
+    ImGui::InvisibleButton("##cmdk_chip", ImVec2(chip_w, chip_h));
+    const bool chip_hover = ImGui::IsItemHovered();
+    const bool chip_click = ImGui::IsItemClicked();
+
+    dl->AddRect(search_tl, search_br,
+        theme::to_u32(chip_hover ? theme::accent_edge : theme::outline),
+        theme::radius_sm, 0, 1.0f);
+    dl->AddText(ImVec2(search_tl.x + pad_x, search_tl.y + pad_y),
+        theme::to_u32(chip_hover ? theme::on_surface_variant : theme::on_surface_disabled),
+        hint_short);
+    dl->AddText(ImVec2(search_tl.x + pad_x + short_sz.x + gap, search_tl.y + pad_y),
+        theme::to_u32(theme::on_surface_disabled),
+        hint_label);
+    if (chip_click) {
+        open_command_palette();
+    }
 }
 
 void ClickGui::draw_sidebar() {
@@ -408,16 +467,16 @@ void ClickGui::draw_sidebar() {
         const float y = sel_bar_y_ch_.step(sel_y, dt);
         const float h = sel_bar_h_ch_.step(sel_h, dt);
         const ImVec2 wp = ImGui::GetWindowPos();
-        // Inset the indicator bar within the row so it visually "floats"
-        // — previously the 8 px inset matched theme::space_sm but with
-        // tighter rows the bar ran right up against the hover rect's
-        // top/bottom edges. A fixed 10 px inset keeps it comfortable at
-        // any row height.
-        constexpr float k_bar_inset = 10.0f;
+        // v3 indicator — 2 px wide, positioned 6 px from the sidebar
+        // left edge, inset 10 px top/bottom inside the row so it visually
+        // floats rather than running edge-to-edge.
+        constexpr float k_bar_left_x = 6.0f;
+        constexpr float k_bar_width  = 2.0f;
+        constexpr float k_bar_inset  = 10.0f;
         dl->AddRectFilled(
-            ImVec2(wp.x + theme::space_sm - 4.0f, y + k_bar_inset),
-            ImVec2(wp.x + theme::space_sm - 2.0f, y + h - k_bar_inset),
-            theme::to_u32(theme::on_surface), 1.0f);
+            ImVec2(wp.x + k_bar_left_x,               y + k_bar_inset),
+            ImVec2(wp.x + k_bar_left_x + k_bar_width, y + h - k_bar_inset),
+            theme::to_u32(theme::primary_hot), 1.0f);
     }
 
     // Symmetric bottom breathing room — mirror of the top Dummy so the
@@ -434,12 +493,12 @@ void ClickGui::draw_content() {
     // separation is obvious. Full rounded corners + hairline border give
     // it the "floating sheet" look of a premium settings UI.
     //
-    // Padding: 56 px left/right, 44 px top, 40 px bottom. Generous enough
-    // that the title doesn't crowd the card corner and panel content has
-    // a clear right-hand gutter (the thing that previously looked like
-    // content was running into the border).
-    constexpr float pad_x = 56.0f;
-    constexpr float pad_y = 44.0f;
+    // v3 padding: 48 px horizontal, 40 px top, 36 px bottom. The card sits
+    // with a small margin around it (right/bottom 8 px gutter between the
+    // card edge and the root window border) so it visibly floats on the
+    // darker root bg.
+    constexpr float pad_x = 48.0f;
+    constexpr float pad_y = 40.0f;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pad_x, pad_y));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::transparent);
     ImGui::PushStyleColor(ImGuiCol_Border, theme::transparent);
@@ -457,25 +516,22 @@ void ClickGui::draw_content() {
         const ImVec2 content_tl = ImGui::GetWindowPos();
         const ImVec2 content_sz = ImGui::GetWindowSize();
 
-        // Rounded card background — much brighter than root surface_dim
-        // (#0b0b0c ≈ 4%).  At 20% gray this is unmissable.
-        constexpr ImVec4 content_bg = {0.200f, 0.200f, 0.210f, 1.0f};
+        // v3 content surface — a very subtle 2.8% white tint over the
+        // dark root so the card reads as a frosted inset without being
+        // a bright gray slab. The inner highlight still does most of
+        // the "lit from above" work.
+        constexpr ImVec4 content_bg = {1.0f, 1.0f, 1.0f, 0.028f};
         content_dl->AddRectFilled(
             content_tl, content_tl + content_sz,
             theme::to_u32(content_bg),
             theme::radius_lg);
 
-        // Visible border so edges read clearly
-        constexpr ImVec4 content_border = {1.0f, 1.0f, 1.0f, 0.12f};
+        // Hairline edge — white @ 6% alpha.
         content_dl->AddRect(
             content_tl, content_tl + content_sz,
-            theme::to_u32(content_border),
+            theme::to_u32(theme::outline),
             theme::radius_lg, 0, 1.0f);
 
-        // 1 px top-biased inner highlight — the surface now reads as
-        // "lit from above" instead of a flat sticker. Very subtle; you'd
-        // have to squint to notice it on its own, but the room feels
-        // different with it off.
         theme::draw_inner_highlight(
             content_tl, content_tl + content_sz, theme::radius_lg);
     }
@@ -484,28 +540,28 @@ void ClickGui::draw_content() {
     for (auto& p : panels_) if (p->id() == selected_id_) { active = p.get(); break; }
 
     if (active) {
-        // Minimal page header — title + breadcrumb. No frame, no accent.
+        // v3 page header — title 22 px, breadcrumb 11 px caption right
+        // underneath, 4 px gap. Margin of 24 px before panel content.
         ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface);
         ImGui::SetWindowFontScale(theme::scale_title);
         ImGui::TextUnformatted(std::string(active->title()).c_str());
         ImGui::SetWindowFontScale(theme::scale_default);
         ImGui::PopStyleColor();
 
-        ImGui::Dummy(ImVec2(0, theme::space_xs));
+        ImGui::Dummy(ImVec2(0, 4.0f));
         const std::string cat(active->category());
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_disabled);
         ImGui::SetWindowFontScale(theme::scale_caption);
         if (cat.empty()) {
             ImGui::Text("%s", std::string(active->id()).c_str());
         } else {
-            ImGui::Text("%s  /  %s", cat.c_str(), std::string(active->id()).c_str());
+            ImGui::Text("%s / %s", cat.c_str(), std::string(active->id()).c_str());
         }
         ImGui::SetWindowFontScale(theme::scale_default);
         ImGui::PopStyleColor();
 
         ImGui::Dummy(ImVec2(0, theme::space_xl));
 
-        // The actual panel content
         active->draw();
     } else {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);

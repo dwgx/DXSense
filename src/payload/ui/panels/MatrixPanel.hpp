@@ -12,7 +12,7 @@ namespace dxs {
 class MatrixPanel : public IPanel {
 public:
     std::string_view id()       const override { return "matrix"; }
-    std::string_view category() const override { return L("sidebar.analysis"); }
+    std::string_view category() const override { return L("sidebar.inspection"); }
     std::string_view title()    const override { return L("panel.matrix.title"); }
     std::string_view icon()     const override { return ICON_MATRIX; }
     void             draw()           override;

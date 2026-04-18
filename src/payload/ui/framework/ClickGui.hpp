@@ -44,6 +44,11 @@ public:
     // content area for ~2s. Good for "copied!", "rpc hook installed", etc.
     void toast(std::string msg);
 
+    // Public read-only enumeration of registered panels. Used by the
+    // command palette to build its search list — ClickGui owns the
+    // panels by unique_ptr and this keeps that ownership invariant.
+    std::vector<IPanel*> panels_enumerate() const;
+
 private:
     ClickGui() = default;
 

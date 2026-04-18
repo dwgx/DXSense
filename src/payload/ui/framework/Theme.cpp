@@ -249,13 +249,21 @@ static ImVec4 status_colour(Status s) {
     }
 }
 
+// v3 status dot — tinted glow halo around a small solid dot so status
+// reads at a glance without a filled pill.
+static void draw_glow_dot(ImDrawList* dl, ImVec2 centre, ImVec4 col) {
+    ImVec4 halo = col; halo.w *= 0.38f;
+    dl->AddCircleFilled(centre, status_dot_r + 3.0f, to_u32(halo), 18);
+    dl->AddCircleFilled(centre, status_dot_r,        to_u32(col),  16);
+}
+
 void status_chip(Status s, std::string_view label) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const float  h = ImGui::GetFontSize();
-    const ImVec2 dot = { p.x + status_dot_r + 1.0f, p.y + h * 0.5f };
-    dl->AddCircleFilled(dot, status_dot_r, to_u32(status_colour(s)), 14);
-    ImGui::Dummy(ImVec2(status_dot_r * 2 + space_xs + space_xxs, h));
+    const ImVec2 dot = { p.x + status_dot_r + 2.0f, p.y + h * 0.5f };
+    draw_glow_dot(dl, dot, status_colour(s));
+    ImGui::Dummy(ImVec2(status_dot_r * 2 + space_sm, h));
     ImGui::SameLine(0, 0);
     ImGui::PushStyleColor(ImGuiCol_Text, on_surface_variant);
     ImGui::TextUnformatted(label.data(), label.data() + label.size());
@@ -264,45 +272,72 @@ void status_chip(Status s, std::string_view label) {
 
 void status_chip_at(ImDrawList* dl, ImVec2 tl, Status s, std::string_view label) {
     const float h = ImGui::GetFontSize();
-    const ImVec2 dot = { tl.x + status_dot_r + 1.0f, tl.y + h * 0.5f };
-    dl->AddCircleFilled(dot, status_dot_r, to_u32(status_colour(s)), 14);
-    const ImVec2 text_pos = { tl.x + status_dot_r * 2 + space_xs + space_xxs, tl.y };
+    const ImVec2 dot = { tl.x + status_dot_r + 2.0f, tl.y + h * 0.5f };
+    draw_glow_dot(dl, dot, status_colour(s));
+    const ImVec2 text_pos = { tl.x + status_dot_r * 2 + space_sm, tl.y };
     dl->AddText(text_pos, to_u32(on_surface_variant),
                 label.data(), label.data() + label.size());
 }
 
-// Ghost badge — outline only, coloured text. `filled` adds a ~14% tinted
-// fill so semantic status reads at a glance.
-void badge(Status s, std::string_view label, bool filled) {
+// v3 badge — low-alpha tinted fill, full-colour text, no border. The
+// soft fill ($colour at ~10% alpha) lets the label carry the meaning.
+void badge(Status s, std::string_view label, bool /*filled*/) {
     const ImVec2 text = ImGui::CalcTextSize(label.data(), label.data() + label.size());
-    const float  h    = control_h_sm;
-    const ImVec2 p0   = ImGui::GetCursorScreenPos();
-    const ImVec2 p1   = p0 + ImVec2(text.x + space_md, h);
-    ImDrawList*  dl   = ImGui::GetWindowDrawList();
+    const float  pad_x = space_sm;
+    const float  pad_y = 2.0f;
+    const float  h     = text.y + pad_y * 2;
+    const ImVec2 p0    = ImGui::GetCursorScreenPos();
+    const ImVec2 p1    = p0 + ImVec2(text.x + pad_x * 2, h);
+    ImDrawList*  dl    = ImGui::GetWindowDrawList();
 
     const ImVec4 colour = status_colour(s);
-    const ImVec4 fill   = filled ? with_alpha(colour, 0.12f) : transparent;
-    const ImVec4 edge   = filled ? with_alpha(colour, 0.42f) : outline;
+    ImVec4 fill = colour; fill.w = 0.094f;   // 0x18/255 ≈ 9.4%
     dl->AddRectFilled(p0, p1, to_u32(fill), radius_xs);
-    dl->AddRect      (p0, p1, to_u32(edge), radius_xs, 0, 1.0f);
-    dl->AddText(p0 + ImVec2(space_sm, (h - ImGui::GetFontSize()) * 0.5f),
-                to_u32(filled ? colour : on_surface_variant),
+    dl->AddText(p0 + ImVec2(pad_x, pad_y),
+                to_u32(colour),
                 label.data(), label.data() + label.size());
     ImGui::Dummy(p1 - p0);
 }
 
+// v3 section header — label + optional detail + a gradient hairline
+// fading left → right from `outline` alpha to transparent, filling all
+// remaining horizontal space. The gradient is the visual signature of
+// the panel layout; without it the label looks orphaned.
 void section_label(std::string_view label, std::string_view detail) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const float  avail = ImGui::GetContentRegionAvail().x;
+
     ImGui::PushStyleColor(ImGuiCol_Text, on_surface_muted);
     ImGui::SetWindowFontScale(scale_caption);
     ImGui::TextUnformatted(label.data(), label.data() + label.size());
     ImGui::SetWindowFontScale(scale_default);
     ImGui::PopStyleColor();
 
+    float xcur = ImGui::GetItemRectMax().x;
     if (!detail.empty()) {
         ImGui::SameLine(0, space_sm);
         ImGui::PushStyleColor(ImGuiCol_Text, on_surface_disabled);
+        ImGui::SetWindowFontScale(scale_caption);
         ImGui::TextUnformatted(detail.data(), detail.data() + detail.size());
+        ImGui::SetWindowFontScale(scale_default);
         ImGui::PopStyleColor();
+        xcur = ImGui::GetItemRectMax().x;
+    }
+
+    // Gradient rule — 1 px hairline from (xcur + gap) to the right edge,
+    // fading from outline @ full alpha at the left to transparent at
+    // the right. AddRectFilledMultiColor takes corner colours clockwise.
+    const float rule_y  = start.y + ImGui::GetFontSize() * scale_caption * 0.5f + 1.0f;
+    const float rule_x0 = xcur + space_sm;
+    const float rule_x1 = start.x + avail;
+    if (rule_x1 > rule_x0 + 8.0f) {
+        const ImU32 col_l = to_u32(outline);
+        const ImU32 col_r = IM_COL32(255, 255, 255, 0);
+        dl->AddRectFilledMultiColor(
+            ImVec2(rule_x0, rule_y - 0.5f),
+            ImVec2(rule_x1, rule_y + 0.5f),
+            col_l, col_r, col_r, col_l);
     }
 }
 

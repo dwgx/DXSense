@@ -6,6 +6,7 @@
 #include "core/procedure/Loom.hpp"
 #include "game/CameraSampler.hpp"
 #include "ui/framework/ClickGui.hpp"
+#include "ui/framework/CommandPalette.hpp"
 #include "ui/framework/Splash.hpp"
 #include "ui/framework/Theme.hpp"
 #include "ui/hud/HudManager.hpp"
@@ -114,6 +115,16 @@ void Overlay::draw() {
     if (!splash::active()) {
         HudManager::instance().draw();        // always on top of the game
         ClickGui::instance().draw();
+
+        // Ctrl+K toggles the palette. Checked here so it works even when
+        // no ImGui widget has keyboard focus (ImGui::IsKeyPressed still
+        // sees the chord via io.KeyCtrl + key).
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_K, false)) {
+            if (command_palette_open()) close_command_palette();
+            else                        open_command_palette();
+        }
+        command_palette_draw();
     }
     splash::draw();                       // rendered last — sits above everything
 }

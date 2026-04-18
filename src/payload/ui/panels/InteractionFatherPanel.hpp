@@ -26,7 +26,7 @@ struct Interaction {
 class InteractionFatherPanel : public IPanel {
 public:
     std::string_view id()       const override { return "interaction_father"; }
-    std::string_view category() const override { return L("sidebar.modules"); }
+    std::string_view category() const override { return L("sidebar.lab"); }
     std::string_view title()    const override { return L("panel.interaction_father.title"); }
     std::string_view icon()     const override { return ICON_SEARCH; }
     void             draw()           override;

@@ -17,7 +17,7 @@ namespace dxs {
 class AcObservatoryPanel : public IPanel {
 public:
     std::string_view id()       const override { return "ac_observatory"; }
-    std::string_view category() const override { return L("sidebar.analysis"); }
+    std::string_view category() const override { return L("sidebar.inspection"); }
     std::string_view title()    const override { return L("panel.ac_observatory.title"); }
     std::string_view icon()     const override { return ICON_SEARCH; }
     void             draw()           override;

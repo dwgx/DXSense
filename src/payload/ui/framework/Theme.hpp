@@ -11,58 +11,62 @@
 namespace dxs::theme {
 
 // ============================================================================
-// Palette — CODEX dark (deep black + cyan/teal accent).
+// Palette — ported from the v3 designer brief.
 //
-// Deep dark surfaces with a signature cyan (#00CED1) accent for active
-// states, selections, and CTAs.  Borders get a subtle cyan tint on
-// interactive elements.  Semantic colours stay desaturated so they read
-// as status signals, not decoration.
+// A deeper black than before (#060606 root) with a finer-grained surface
+// ladder (six steps from #0a → #2c) so cards read as distinct layers of
+// glass. Text runs from pure silver down to near-black dim. Accent is
+// neutral white; semantic colours (good/warn/bad/info) stay as discrete
+// hues used sparingly.
 // ============================================================================
 
-// Surface ladder — pure neutral grayscale, deep black to light gray.
-inline constexpr ImVec4 surface_dim          = {0.040f, 0.040f, 0.040f, 0.96f};  // #0a0a0a root
-inline constexpr ImVec4 surface              = {0.060f, 0.060f, 0.060f, 0.98f};  // #0f0f0f panel
-inline constexpr ImVec4 surface_ctn_low      = {0.080f, 0.080f, 0.080f, 1.00f};  // #141414 card base
-inline constexpr ImVec4 surface_ctn          = {0.110f, 0.110f, 0.110f, 1.00f};  // #1c1c1c elevated
-inline constexpr ImVec4 surface_ctn_high     = {0.150f, 0.150f, 0.150f, 1.00f};  // #262626 hover
-inline constexpr ImVec4 surface_ctn_highest  = {0.200f, 0.200f, 0.200f, 1.00f};  // #333333 active
+// Base — darker than the original; used as ImGuiCol_WindowBg for the root.
+inline constexpr ImVec4 surface_bg           = {0.024f, 0.024f, 0.024f, 1.00f};  // #060606
+inline constexpr ImVec4 surface_dim          = {0.039f, 0.039f, 0.039f, 1.00f};  // #0a0a0a
+inline constexpr ImVec4 surface              = {0.055f, 0.055f, 0.055f, 1.00f};  // #0e0e0e
+inline constexpr ImVec4 surface_ctn_low      = {0.071f, 0.071f, 0.071f, 1.00f};  // #121212
+inline constexpr ImVec4 surface_ctn          = {0.094f, 0.094f, 0.094f, 1.00f};  // #181818
+inline constexpr ImVec4 surface_ctn_high     = {0.133f, 0.133f, 0.133f, 1.00f};  // #222222
+inline constexpr ImVec4 surface_ctn_highest  = {0.173f, 0.173f, 0.173f, 1.00f};  // #2c2c2c
 
-// Borders — neutral white with alpha.
-inline constexpr ImVec4 outline              = {1.000f, 1.000f, 1.000f, 0.10f};  // white @ 10%
-inline constexpr ImVec4 outline_variant      = {1.000f, 1.000f, 1.000f, 0.05f};  // white @ 5%
-inline constexpr ImVec4 scrim                = {0.000f, 0.000f, 0.000f, 0.60f};
+// Borders — white with very low alpha so strokes feel like inner highlights.
+inline constexpr ImVec4 outline              = {1.000f, 1.000f, 1.000f, 0.060f};
+inline constexpr ImVec4 outline_variant      = {1.000f, 1.000f, 1.000f, 0.030f};
+inline constexpr ImVec4 accent_soft          = {1.000f, 1.000f, 1.000f, 0.080f};
+inline constexpr ImVec4 accent_edge          = {1.000f, 1.000f, 1.000f, 0.200f};
+inline constexpr ImVec4 scrim                = {0.024f, 0.024f, 0.024f, 0.500f};
 inline constexpr ImVec4 transparent          = {0.000f, 0.000f, 0.000f, 0.000f};
 
-// Text — pure crisp white and neutral grays.
-inline constexpr ImVec4 on_surface           = {0.960f, 0.960f, 0.960f, 1.00f};  // #f5f5f5 primary
-inline constexpr ImVec4 on_surface_variant   = {0.700f, 0.700f, 0.700f, 1.00f};  // #b3b3b3 secondary
-inline constexpr ImVec4 on_surface_muted     = {0.500f, 0.500f, 0.500f, 1.00f};  // #808080 muted
-inline constexpr ImVec4 on_surface_disabled  = {0.300f, 0.300f, 0.300f, 1.00f};  // #4d4d4d disabled
+// Text ladder.
+inline constexpr ImVec4 on_surface           = {0.941f, 0.941f, 0.941f, 1.00f};  // #f0f0f0
+inline constexpr ImVec4 on_surface_variant   = {0.627f, 0.627f, 0.627f, 1.00f};  // #a0a0a0
+inline constexpr ImVec4 on_surface_muted     = {0.408f, 0.408f, 0.408f, 1.00f};  // #686868
+inline constexpr ImVec4 on_surface_disabled  = {0.251f, 0.251f, 0.251f, 1.00f};  // #404040
 
-// Primary — Silver / Bright Gray accent.
-inline constexpr ImVec4 primary              = {0.850f, 0.850f, 0.850f, 1.00f};  // #d9d9d9 Silver
-inline constexpr ImVec4 primary_hot          = {1.000f, 1.000f, 1.000f, 1.00f};  // #ffffff Solid White
-inline constexpr ImVec4 primary_container    = {0.850f, 0.850f, 0.850f, 0.15f};  // 15% fill
-inline constexpr ImVec4 primary_edge         = {0.850f, 0.850f, 0.850f, 0.35f};  // border glow
+// Primary — neutral silver.
+inline constexpr ImVec4 primary              = {0.831f, 0.831f, 0.831f, 1.00f};  // #d4d4d4
+inline constexpr ImVec4 primary_hot          = {1.000f, 1.000f, 1.000f, 1.00f};  // #ffffff
+inline constexpr ImVec4 primary_container    = accent_soft;
+inline constexpr ImVec4 primary_edge         = accent_edge;
 
-// System accent — mapped to the same silver/white.
-inline constexpr ImVec4 sys_blue             = {0.900f, 0.900f, 0.900f, 1.00f};
-inline constexpr ImVec4 sys_blue_soft        = {0.900f, 0.900f, 0.900f, 0.15f};
+// Kept for API compatibility with the previous palette — map to primary.
+inline constexpr ImVec4 sys_blue             = primary;
+inline constexpr ImVec4 sys_blue_soft        = accent_soft;
 
-// Semantic colours — slightly desaturated for readability.
-inline constexpr ImVec4 good                 = {0.300f, 0.850f, 0.550f, 1.00f};
-inline constexpr ImVec4 warn                 = {0.950f, 0.730f, 0.300f, 1.00f};
-inline constexpr ImVec4 bad                  = {0.950f, 0.380f, 0.400f, 1.00f};
-inline constexpr ImVec4 info                 = {0.350f, 0.700f, 0.950f, 1.00f};
+// Semantic palette. Tailwind-400 hues from the v3 spec.
+inline constexpr ImVec4 good                 = {0.290f, 0.871f, 0.502f, 1.00f};  // #4ADE80
+inline constexpr ImVec4 warn                 = {0.984f, 0.749f, 0.141f, 1.00f};  // #FBBF24
+inline constexpr ImVec4 bad                  = {0.973f, 0.443f, 0.443f, 1.00f};  // #F87171
+inline constexpr ImVec4 info                 = {0.376f, 0.647f, 0.980f, 1.00f};  // #60A5FA
 
 // ---- Legacy aliases (panels compile unchanged) ----------------------------
-inline constexpr ImVec4 bg_root              = surface_dim;
+inline constexpr ImVec4 bg_root              = surface_bg;
 inline constexpr ImVec4 bg_panel             = surface;
 inline constexpr ImVec4 bg_surface           = surface_ctn;
 inline constexpr ImVec4 bg_elevated          = surface_ctn_high;
 inline constexpr ImVec4 bg_hover             = surface_ctn_high;
 inline constexpr ImVec4 bg_active            = surface_ctn_highest;
-inline constexpr ImVec4 bg_pressed           = {0.250f, 0.250f, 0.250f, 1.00f};
+inline constexpr ImVec4 bg_pressed           = surface_ctn_highest;
 inline constexpr ImVec4 bg_backdrop          = scrim;
 inline constexpr ImVec4 border               = outline;
 inline constexpr ImVec4 divider              = outline_variant;
@@ -72,9 +76,7 @@ inline constexpr ImVec4 text_muted           = on_surface_muted;
 inline constexpr ImVec4 text_faded           = on_surface_disabled;
 inline constexpr ImVec4 accent               = primary;
 inline constexpr ImVec4 accent_hot           = primary_hot;
-inline constexpr ImVec4 accent_soft          = primary_container;
-inline constexpr ImVec4 accent_edge          = primary_edge;
-inline constexpr ImVec4 accent_glow          = {0.850f, 0.850f, 0.850f, 0.15f};
+inline constexpr ImVec4 accent_glow          = accent_edge;
 inline constexpr ImVec4 shadow               = {0.000f, 0.000f, 0.000f, 0.55f};
 inline constexpr ImVec4 shadow_inner         = {0.000f, 0.000f, 0.000f, 0.20f};
 
@@ -96,30 +98,33 @@ inline constexpr float  space_5              = 22.0f;
 inline constexpr float  space_6              = space_xxl;
 
 // ============================================================================
-// Radius — Apple-ish shape scale.
+// Radius — v3 shape scale (r = 14 base).
 // ============================================================================
 inline constexpr float  radius_xs            =  4.0f;
-inline constexpr float  radius_sm            =  6.0f;
-inline constexpr float  radius_md            =  8.0f;
-inline constexpr float  radius_lg            = 12.0f;
-inline constexpr float  radius_xl            = 16.0f;
+inline constexpr float  radius_sm            =  7.0f;
+inline constexpr float  radius_md            = 10.0f;
+inline constexpr float  radius_lg            = 14.0f;
+inline constexpr float  radius_xl            = 18.0f;
 inline constexpr float  corner_xs            = radius_sm;
 inline constexpr float  corner_sm            = radius_md;
 inline constexpr float  corner_md            = radius_lg;
 inline constexpr float  corner_lg            = radius_xl;
 
 // ============================================================================
-// Typography.
+// Typography — v3 px stops mapped to our 15 px UI font via ImGui scale.
+//  cap  11 · body 13 · ui 14 · head 17 · title 22 · hero 80
 // ============================================================================
 inline constexpr float  font_base            = 15.0f;
-inline constexpr float  font_caption         = 12.0f;   // CJK legibility at small sizes
-inline constexpr float  font_body            = 14.0f;
-inline constexpr float  font_header          = 16.0f;
-inline constexpr float  font_title           = 20.0f;
+inline constexpr float  font_caption         = 11.0f;
+inline constexpr float  font_body            = 13.0f;
+inline constexpr float  font_ui              = 14.0f;
+inline constexpr float  font_header          = 17.0f;
+inline constexpr float  font_title           = 22.0f;
 inline constexpr float  font_metric          = 28.0f;
 inline constexpr float  scale_default        = 1.0f;
 inline constexpr float  scale_caption        = font_caption / font_base;
 inline constexpr float  scale_body           = font_body    / font_base;
+inline constexpr float  scale_ui             = font_ui      / font_base;
 inline constexpr float  scale_header         = font_header  / font_base;
 inline constexpr float  scale_title          = font_title   / font_base;
 inline constexpr float  scale_metric         = font_metric  / font_base;
@@ -136,9 +141,9 @@ inline constexpr float  world_to_meter       =  0.1f;
 // ============================================================================
 // Layout constants.
 // ============================================================================
-inline constexpr float  sidebar_w            = 208.0f;
-inline constexpr float  header_h             =  54.0f;
-inline constexpr float  row_h                =  36.0f;
+inline constexpr float  sidebar_w            = 200.0f;
+inline constexpr float  header_h             =  52.0f;
+inline constexpr float  row_h                =  38.0f;
 inline constexpr float  subheader_h          =  40.0f;
 
 inline constexpr float  control_h_sm         = 22.0f;

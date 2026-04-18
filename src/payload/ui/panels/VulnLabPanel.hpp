@@ -17,7 +17,7 @@ class VulnLabPanel : public IPanel {
 public:
     VulnLabPanel();
     std::string_view id()       const override { return "vuln_lab"; }
-    std::string_view category() const override { return L("sidebar.modules"); }
+    std::string_view category() const override { return L("sidebar.lab"); }
     std::string_view title()    const override { return L("panel.vuln_lab.title"); }
     std::string_view icon()     const override { return ICON_WARNING; }
     void             draw()           override;

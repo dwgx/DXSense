@@ -15,13 +15,20 @@ struct Entry {
 };
 
 constexpr Entry kStrings[] = {
-    {"sidebar.runtime",                   "Runtime",                     "运行时"},
-    {"sidebar.analysis",                  "Analysis",                    "分析"},
+    // v3 category taxonomy. See Overlay::register_default_panels for the
+    // panel → category mapping.
+    {"sidebar.core",                      "Core",                        "核心"},
+    {"sidebar.inspection",                "Inspection",                  "查看"},
     {"sidebar.scripting",                 "Scripting",                   "脚本"},
-    {"sidebar.modules",                   "Modules",                     "模块"},
-    {"sidebar.hud",                       "HUD",                         "HUD"},
+    {"sidebar.functional",                "Functional",                  "功能"},
+    {"sidebar.lab",                       "Lab",                         "实验室"},
     {"sidebar.settings",                  "Settings",                    "设置"},
-    {"sidebar.overlay",                   "Overlay",                     "HUD"},
+    // Legacy keys still referenced by a few panels until they're migrated.
+    {"sidebar.runtime",                   "Core",                        "核心"},
+    {"sidebar.analysis",                  "Inspection",                  "查看"},
+    {"sidebar.modules",                   "Functional",                  "功能"},
+    {"sidebar.hud",                       "Functional",                  "功能"},
+    {"sidebar.overlay",                   "Functional",                  "功能"},
 
     {"panel.overview.title",              "Overview",                    "概览"},
     {"panel.hooks.title",                 "Hooks",                       "Hooks"},

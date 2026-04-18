@@ -16,7 +16,7 @@ namespace dxs {
 class VelocityLabPanel : public IPanel {
 public:
     std::string_view id()       const override { return "velocity_lab"; }
-    std::string_view category() const override { return L("sidebar.modules"); }
+    std::string_view category() const override { return L("sidebar.lab"); }
     std::string_view title()    const override { return L("panel.velocity_lab.title"); }
     std::string_view icon()     const override { return ICON_RADAR; }
     void             draw()           override;
