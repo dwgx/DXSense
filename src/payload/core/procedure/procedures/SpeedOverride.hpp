@@ -38,6 +38,7 @@ private:
     PinFloat  target_;      // the m/s value we force speed_real to
     PinBool   anti_clear_;  // keep clearing anti-cheat accumulator
     PinFloat  tick_rate_;   // how often we re-write force_speed (seconds)
+    PinKey    sigil_;       // optional hotkey — SigilDispatcher picks it up
 
     // Internal cadence — avoids sending Python every frame even if the
     // target hasn't drifted. Procedures that talk to the game should

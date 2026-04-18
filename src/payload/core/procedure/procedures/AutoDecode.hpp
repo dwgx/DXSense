@@ -31,6 +31,7 @@ private:
     PinFloat  safety_radius_; // skip if a hunter is within this (m)
     PinInt    tap_hz_;        // press-rate of the interact key
     PinBool   only_battle_;   // only run while in_battle
+    PinKey    sigil_;         // hotkey — Loom's SigilDispatcher picks it up
 
     // Cadence state.
     double    next_tap_at_ = 0.0;

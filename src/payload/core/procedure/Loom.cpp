@@ -6,9 +6,28 @@
 #include "core/Logger.hpp"
 #include "game/CameraSampler.hpp"
 
+#include <Windows.h>
 #include <chrono>
 
 namespace dxs::procedure {
+
+namespace {
+
+// SigilDispatcher — scans a procedure's pins for a PinKey tagged "sigil"
+// and returns it (nullptr if absent). Pointer is stable for the lifetime
+// of the procedure, but we re-scan every frame rather than cache because
+// it's O(few pins) per procedure and keeps the Loom stateless about pin
+// identities.
+PinKey* find_sigil(Procedure& p) {
+    for (auto* pin : p.pins()) {
+        if (!pin) continue;
+        if (pin->tag() != "sigil") continue;
+        if (auto* k = dynamic_cast<PinKey*>(pin)) return k;
+    }
+    return nullptr;
+}
+
+}  // namespace
 
 namespace {
 std::string engaged_key(std::string_view handle) {
@@ -158,6 +177,21 @@ void Loom::rehydrate() {
 void Loom::advance(float dt) {
     const auto t0 = std::chrono::steady_clock::now();
     const auto snap = CameraSampler::instance().snapshot();
+
+    // ── Sigil dispatch — poll each procedure's "sigil" PinKey and
+    //   edge-toggle engage state on keypress down. Every procedure
+    //   that declares a PinKey tagged "sigil" gets a hotkey for free,
+    //   remappable through the standard pin inspector.
+    for (auto& s : slots_) {
+        PinKey* sig = find_sigil(*s->proc);
+        const int vk = sig ? sig->get() : 0;
+        if (vk == 0) { s->sigil_was_down = false; continue; }
+        const bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
+        if (down && !s->sigil_was_down) {
+            set_engaged(*s->proc, !s->engaged_requested);
+        }
+        s->sigil_was_down = down;
+    }
 
     std::vector<PythonIntent> py;
     std::vector<EventIntent>  ev;

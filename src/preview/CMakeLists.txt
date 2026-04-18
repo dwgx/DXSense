@@ -10,8 +10,11 @@ add_executable(dxs_preview WIN32
     ../payload/core/procedure/Pin.cpp
     ../payload/core/procedure/ProfileManager.cpp
     ../payload/core/procedure/Tick.cpp
+    ../payload/core/procedure/procedures/AntiAFK.cpp
     ../payload/core/procedure/procedures/AutoDecode.cpp
+    ../payload/core/procedure/procedures/AutoRescue.cpp
     ../payload/core/procedure/procedures/EspVisual.cpp
+    ../payload/core/procedure/procedures/HookCountdown.cpp
     ../payload/core/procedure/procedures/SpeedOverride.cpp
     ../payload/game/CameraSampler.cpp
     ../payload/game/GameMemory.cpp

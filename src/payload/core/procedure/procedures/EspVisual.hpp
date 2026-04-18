@@ -43,6 +43,7 @@ private:
     PinChoice tracer_origin_;        // Bottom / Top / Centre / Crosshair
     PinFloat  silhouette_alpha_;
     PinFloat  max_distance_;
+    PinKey    sigil_;                // hotkey — Loom's SigilDispatcher
 };
 
 }  // namespace dxs::procedure

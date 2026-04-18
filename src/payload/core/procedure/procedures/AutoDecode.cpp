@@ -127,7 +127,8 @@ AutoDecode::AutoDecode()
       radius_       (this, "radius",        "Trigger radius (m)",    2.4f, {0.5f, 6.0f}),
       safety_radius_(this, "safety_radius", "Skip if hunter within",  14.0f,{5.0f, 40.0f}),
       tap_hz_       (this, "tap_hz",        "Interact rate (Hz)",      30, {5, 120}),
-      only_battle_  (this, "only_battle",   "Only run in match",     true)
+      only_battle_  (this, "only_battle",   "Only run in match",     true),
+      sigil_        (this, "sigil",         "Hotkey",                  0)
 {}
 
 void AutoDecode::on_engage() {

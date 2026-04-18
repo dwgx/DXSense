@@ -32,7 +32,8 @@ EspVisual::EspVisual()
       // 180 m matches the widget default; past that tracers overlap too
       // densely to be useful.
       max_distance_    (this, "max_distance", "Max distance (m)",   180.0f,
-                        {10.0f, 500.0f})
+                        {10.0f, 500.0f}),
+      sigil_           (this, "sigil",        "Hotkey",              0)
 {}
 
 namespace {

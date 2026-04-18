@@ -73,7 +73,8 @@ SpeedOverride::SpeedOverride()
       // envelope tested in VulnLab.
       target_    (this, "target",     "Target speed (m/s)",    220.0f, {0.0f, 400.0f}),
       anti_clear_(this, "anti_clear", "Clear anti-cheat buffer", true),
-      tick_rate_ (this, "tick_rate",  "Push rate (seconds)",     0.25f, {0.05f, 2.0f})
+      tick_rate_ (this, "tick_rate",  "Push rate (seconds)",     0.25f, {0.05f, 2.0f}),
+      sigil_     (this, "sigil",      "Hotkey",                  0)
 {}
 
 void SpeedOverride::on_engage() {

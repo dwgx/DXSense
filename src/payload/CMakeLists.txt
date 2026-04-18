@@ -11,8 +11,11 @@ add_library(dxsense SHARED
     core/procedure/Pin.cpp
     core/procedure/ProfileManager.cpp
     core/procedure/Tick.cpp
+    core/procedure/procedures/AntiAFK.cpp
     core/procedure/procedures/AutoDecode.cpp
+    core/procedure/procedures/AutoRescue.cpp
     core/procedure/procedures/EspVisual.cpp
+    core/procedure/procedures/HookCountdown.cpp
     core/procedure/procedures/SpeedOverride.cpp
     game/CameraSampler.cpp
     game/GameMemory.cpp

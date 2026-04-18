@@ -92,6 +92,10 @@ private:
         Phase       phase             = Phase::Dormant;
         std::string fault;
         bool        was_engaged       = false;   // edge detector
+        // Sigil edge detector — tracks "was the hotkey down last frame?"
+        // so the Loom toggles engage only on the down-edge, not every
+        // frame the key is held.
+        bool        sigil_was_down    = false;
     };
 
     // Pointer-stable — Slot stored by unique_ptr and the map by handle.
