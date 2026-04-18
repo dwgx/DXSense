@@ -89,8 +89,10 @@ void RadarWidget::draw(ImDrawList* dl, ImVec2 pos, ImVec2 size) {
             // Skip the local player itself — centre already plots them.
             if (snap.player_ready && u.uid == snap.player_uid) continue;
 
-            const float wx = u.pos.x - origin.x;
-            const float wz = u.pos.z - origin.z;
+            // World positions are in decimetres — convert to metres so
+            // `range_` (slider labelled "m") actually matches display units.
+            const float wx = (u.pos.x - origin.x) * theme::world_to_meter;
+            const float wz = (u.pos.z - origin.z) * theme::world_to_meter;
             const float d  = std::sqrt(wx * wx + wz * wz);
             if (d > range_) continue;
 
@@ -163,9 +165,9 @@ void RadarWidget::draw_settings() {
     if (ImGui::SliderFloat("range (m)##radar", &range_, 10.0f, 200.0f, "%.0f")) {
         Config::instance().set_float("hud.radar.range", range_);
     }
-    ImGui::Checkbox("survivors", &show_survivors_); ImGui::SameLine();
-    ImGui::Checkbox("hunter",    &show_hunters_);   ImGui::SameLine();
-    ImGui::Checkbox("props",     &show_props_);
+    theme::checkbox("survivors", &show_survivors_); ImGui::SameLine();
+    theme::checkbox("hunter",    &show_hunters_);   ImGui::SameLine();
+    theme::checkbox("props",     &show_props_);
 }
 
 }  // namespace dxs

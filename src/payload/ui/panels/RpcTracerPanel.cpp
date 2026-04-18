@@ -3,9 +3,11 @@
 #include "core/Config.hpp"
 #include "core/Localization.hpp"
 #include "core/Logger.hpp"
+#include "game/CameraSampler.hpp"
 #include "hook/HookManager.hpp"
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/Theme.hpp"
+#include "ui/panels/InteractionFatherPanel.hpp"
 
 #include <Windows.h>
 #include <imgui.h>
@@ -48,7 +50,17 @@ void __fastcall logger_detour(int level, const char* tag,
                              : std::string("src=") + src;
             if (line) e.message += ":" + std::to_string(line);
         }
+        const std::string raw_site = e.message;
         g_panel_ref->append(std::move(e));
+
+        if (auto* iff = InteractionFatherPanel::instance()) {
+            Interaction i;
+            i.ts = CameraSampler::now();
+            i.source = "rpc_async";
+            i.name = tag;
+            i.raw = raw_site;
+            iff->append(std::move(i));
+        }
     }
     if (g_real_logger) g_real_logger(level, tag, src, line);
 }
@@ -107,7 +119,7 @@ void RpcTracerPanel::draw() {
     ImGui::TextWrapped("%s", L("rpc_tracer.intro").data());
     ImGui::PopStyleColor();
 
-    ImGui::Dummy(ImVec2(0, 8));
+    ImGui::Dummy(ImVec2(0, theme::space_sm));
 
     // Controls ----------------------------------------------------------------
     bool on = hook_installed_.load();
@@ -128,10 +140,10 @@ void RpcTracerPanel::draw() {
         head_ = 0; count_ = 0;
     }
     ImGui::SameLine();
-    if (ImGui::Checkbox(L("common.autoscroll").data(), &autoscroll_)) {
+    if (theme::checkbox(L("common.autoscroll").data(), &autoscroll_)) {
         Config::instance().set_bool("rpc_tracer.autoscroll", autoscroll_);
     }
-    ImGui::SameLine(0, 20);
+    ImGui::SameLine(0, theme::space_xl);
     ImGui::PushItemWidth(240);
     if (ImGui::InputTextWithHint("##filter", L("common.filter").data(),
                                  filter_, sizeof(filter_))) {
@@ -139,7 +151,7 @@ void RpcTracerPanel::draw() {
     }
     ImGui::PopItemWidth();
 
-    ImGui::Dummy(ImVec2(0, 6));
+    ImGui::Dummy(ImVec2(0, theme::space_sm));
 
     // Log table ---------------------------------------------------------------
     ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::bg_surface);

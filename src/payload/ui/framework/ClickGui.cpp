@@ -1,7 +1,9 @@
 #include "ClickGui.hpp"
 
 #include "Animation.hpp"
+#include "Icons.hpp"
 #include "Theme.hpp"
+#include "ui/Overlay.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -14,8 +16,8 @@ namespace dxs {
 
 namespace {
 constexpr double kToastDurationSec = 2.0;
-constexpr float  kWindowMinW       = 780.0f;
-constexpr float  kWindowMinH       = 460.0f;
+constexpr float  kWindowMinW       = 900.0f;
+constexpr float  kWindowMinH       = 560.0f;
 }
 
 ClickGui& ClickGui::instance() {
@@ -41,128 +43,274 @@ void ClickGui::toast(std::string msg) {
     toasts_.push_back({std::move(msg), ImGui::GetTime() + kToastDurationSec});
 }
 
+// ---------------------------------------------------------------------------
+// Shell — Apple / ChatGPT / Grok aesthetic:
+//
+//   * Monochrome tonal ladder, no colour accents. The only colour in the
+//     chrome is the tiny status dot next to "Overlay live".
+//   * Sidebar reads as one continuous column — no hard divider between
+//     category groups, just caption labels and row-level hover/active
+//     states. Active row: brighter text + 2 px white left indicator.
+//   * Header carries a close (✕) button so users without the hotkey can
+//     still dismiss the overlay (the old UI had no way out without INS).
+//   * Zero shadow gimmicks, zero gradients — tonal step between surfaces
+//     carries the visual hierarchy.
+// ---------------------------------------------------------------------------
+// Open / close are pure alpha transitions. The two close entry points are
+// kept distinct so existing callers compile, but they now behave identically.
+// Durations are latched at transition time and drive a single eased fade.
+void ClickGui::open() noexcept {
+    if (anim_state_ == AnimState::Open || anim_state_ == AnimState::Opening) return;
+    anim_state_ = AnimState::Opening;
+    window_anim_start_ = ImGui::GetTime();
+}
+void ClickGui::close_via_x() noexcept {
+    if (anim_state_ == AnimState::Closed || anim_state_ == AnimState::Closing_X || anim_state_ == AnimState::Closing_INS) return;
+    anim_state_ = AnimState::Closing_X;
+    window_anim_start_ = ImGui::GetTime();
+}
+void ClickGui::close_via_hotkey() noexcept {
+    if (anim_state_ == AnimState::Closed || anim_state_ == AnimState::Closing_X || anim_state_ == AnimState::Closing_INS) return;
+    anim_state_ = AnimState::Closing_INS;
+    window_anim_start_ = ImGui::GetTime();
+}
+void ClickGui::toggle_via_hotkey() noexcept {
+    if (is_animating_or_visible()) close_via_hotkey();
+    else open();
+}
+
 void ClickGui::draw() {
-    if (!visible_) {
+    if (anim_state_ == AnimState::Closed) {
         window_anim_start_ = 0.0;
+        window_alpha_      = 0.0f;
         sel_bar_ready_     = false;
         return;
     }
+
     const double now = ImGui::GetTime();
-    const float  dt  = ImGui::GetIO().DeltaTime;
     if (window_anim_start_ <= 0.0) window_anim_start_ = now;
 
-    const auto win_anim   = anim::compute(now, window_anim_start_, 0.42);
-    const auto panel_anim = anim::compute(now, panel_anim_start_,  0.30);
+    // Single duration for both directions — the UI reads as one fade gesture
+    // instead of two different animations. 0.22 s lands in the Material/iOS
+    // "short" bucket: fast enough to feel direct, slow enough to register.
+    constexpr double kFadeDuration = 0.22;
 
+    const double elapsed = now - window_anim_start_;
+    float t = static_cast<float>(std::min(elapsed / kFadeDuration, 1.0));
+    const bool finished = (t >= 1.0f);
+
+    const float curve = anim::ease_out_cubic(t);
+    float alpha;
+    if (anim_state_ == AnimState::Opening) {
+        alpha = curve;
+        if (finished) anim_state_ = AnimState::Open;
+    } else if (anim_state_ == AnimState::Open) {
+        alpha = 1.0f;
+    } else {
+        // Both close paths behave identically — pure fade out.
+        alpha = 1.0f - curve;
+        if (finished) anim_state_ = AnimState::Closed;
+    }
+
+    window_alpha_ = alpha;
+
+    if (anim_state_ == AnimState::Closed) {
+        window_anim_start_ = 0.0;
+        return;
+    }
+
+    // Panel-switch fade — wall-clock tween (0.20 s) with cubic ease-out.
+    // Sits in the "one-shot durationed transition" family, so it uses
+    // anim::tween rather than a Channel.
+    const auto  panel_tw    = anim::tween(now, panel_anim_start_, 0.20);
+    const float panel_alpha = anim::ease_out_cubic(panel_tw.t);
     const ImGuiViewport* vp = ImGui::GetMainViewport();
+
+    // Modal scrim — fades with the window so background dim respects the
+    // overall transition.
+    {
+        ImDrawList* bgdl = ImGui::GetBackgroundDrawList();
+        const float dim_a = 0.38f * alpha;
+        bgdl->AddRectFilled(vp->WorkPos, vp->WorkPos + vp->WorkSize,
+                            IM_COL32(12, 12, 14,
+                                     static_cast<int>(dim_a * 255.0f)));
+    }
+
+    // First-time placement only. No position animation — we don't fight user
+    // drags. FirstUseEver lets ImGui restore the remembered position.
     ImGui::SetNextWindowPos(
         vp->WorkPos + ImVec2(theme::space_xxl + theme::space_sm,
                              theme::space_xxl + theme::space_sm),
         ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize({1000, 640}, ImGuiCond_FirstUseEver);
+
+    ImGui::SetNextWindowSize({1060, 680}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints({kWindowMinW, kWindowMinH}, {FLT_MAX, FLT_MAX});
 
-    const ImGuiWindowFlags flags =
+    ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoScrollWithMouse;
+        ImGuiWindowFlags_NoScrollWithMouse |
+        ImGuiWindowFlags_NoTitleBar;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{});
-    ImGui::PushStyleVar(ImGuiStyleVar_Alpha,        win_anim.alpha);
-    const bool open = ImGui::Begin("##dxsense_root", nullptr, flags);
-    ImGui::PopStyleVar(2);
-    if (!open) { ImGui::End(); return; }
-
-    // Drop shadow under the whole window — adds depth.
-    const ImVec2 win_tl = ImGui::GetWindowPos();
-    const ImVec2 win_br = win_tl + ImGui::GetWindowSize();
-    theme::draw_shadow(win_tl, win_br, theme::radius_lg, theme::space_lg);
-
-    // ---- Header --------------------------------------------------------------
-    ImDrawList*  dl      = ImGui::GetWindowDrawList();
-    const ImVec2 top_pos = ImGui::GetCursorScreenPos();
-    const float  avail_w = ImGui::GetContentRegionAvail().x;
-
-    dl->AddRectFilled(top_pos, top_pos + ImVec2(avail_w, theme::header_h),
-                      theme::to_u32(theme::bg_surface),
-                      theme::radius_lg, ImDrawFlags_RoundCornersTop);
-    // Subtle gradient sheen across the top.
-    for (int i = 0; i < 12; ++i) {
-        ImVec4 c = theme::accent; c.w = 0.02f + i * 0.005f;
-        dl->AddLine({top_pos.x, top_pos.y + i * 0.4f},
-                    {top_pos.x + avail_w, top_pos.y + i * 0.4f},
-                    theme::to_u32(c), 0.6f);
+    if (anim_state_ != AnimState::Open && anim_state_ != AnimState::Opening) {
+        flags |= ImGuiWindowFlags_NoInputs;
     }
-    dl->AddLine(top_pos + ImVec2(0, theme::header_h),
-                top_pos + ImVec2(avail_w, theme::header_h),
-                theme::to_u32(theme::divider), 1.0f);
 
-    // Breathing accent dot + halo.
-    const float  pulse = 0.55f + 0.45f * static_cast<float>(std::sin(now * 2.4));
-    const ImVec2 dot_c = top_pos + ImVec2(theme::space_xl, theme::header_h * 0.5f);
-    ImVec4 halo = theme::accent; halo.w = 0.22f * pulse;
-    dl->AddCircleFilled(dot_c,
-                        theme::space_sm + theme::space_xxs + pulse * theme::card_stripe_w,
-                        theme::to_u32(halo), 24);
-    ImVec4 halo2 = theme::accent; halo2.w = 0.10f * pulse;
-    dl->AddCircleFilled(dot_c,
-                        theme::space_lg + theme::space_xxs + pulse * (theme::space_xs + 1.0f),
-                        theme::to_u32(halo2), 24);
-    dl->AddCircleFilled(dot_c, theme::status_dot_r + 1.0f, theme::to_u32(theme::accent), 24);
+    // Alpha is held for the whole window lifetime so theme::to_u32 (which
+    // multiplies into ImGui::GetStyle().Alpha) fades every theme-rendered
+    // surface — header chrome, sidebar rows, content card, toasts, panel
+    // body. Popping early (what the previous revision did) only faded the
+    // window frame itself and left everything inside at full opacity.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{});
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha,        alpha);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg,        theme::surface_dim);
+    const bool open_flag = ImGui::Begin("##dxsense_root", nullptr, flags);
+    if (!open_flag) {
+        ImGui::End();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+        return;
+    }
 
-    ImGui::SetCursorScreenPos(
-        top_pos + ImVec2(theme::space_xl + theme::space_lg + theme::space_xs,
-                         theme::space_md + theme::space_xxs));
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_primary);
-    ImGui::SetWindowFontScale(theme::scale_header);
-    ImGui::TextUnformatted("DXSense");
-    ImGui::SetWindowFontScale(1.00f);
-    ImGui::PopStyleColor();
-    ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::TextUnformatted("  v0.1  ·  dwrg  ·  NeoX3");
-    ImGui::PopStyleColor();
+    ImDrawList*  dl      = ImGui::GetWindowDrawList();
+    const ImVec2 win_tl  = ImGui::GetWindowPos();
+    const ImVec2 win_sz  = ImGui::GetWindowSize();
 
-    char fps_text[32];
-    std::snprintf(fps_text, sizeof(fps_text), "%.0f fps", ImGui::GetIO().Framerate);
-    const ImVec2 fps_size = ImGui::CalcTextSize(fps_text);
-    ImGui::SetCursorScreenPos(
-        top_pos + ImVec2(avail_w - fps_size.x - (theme::space_lg + theme::space_xs + theme::space_xxs),
-                         theme::space_md + theme::space_xxs));
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
-    ImGui::TextUnformatted(fps_text);
-    ImGui::PopStyleColor();
+    // Subtle single-rect drop shadow — just enough to imply "window above
+    // game" without painting dark halos on bright gameplay.
+    theme::draw_shadow(win_tl, win_tl + win_sz, theme::radius_xl, 0.0f);
 
-    ImGui::SetCursorScreenPos(top_pos + ImVec2(0, theme::header_h));
+    // Hairline divider between header and body, and between sidebar and
+    // content. These are the ONLY chrome lines in the window — everything
+    // else reads through tonal contrast.
+    dl->AddLine(win_tl + ImVec2(0,             theme::header_h),
+                win_tl + ImVec2(win_sz.x,      theme::header_h),
+                theme::to_u32(theme::outline), 1.0f);
 
-    // ---- Body ---------------------------------------------------------------
-    ImGui::BeginChild("##dxs_body", ImVec2(avail_w, 0), false,
-                      ImGuiWindowFlags_NoScrollbar);
+    draw_header();
+
+    // ── Body: sidebar + content ──────────────────────────────────────
+    // The sidebar occupies sidebar_w and uses the root dark background.
+    // The content is an inset card: it starts 12 px to the right of the
+    // sidebar and has generous internal padding + rounded corners, so it
+    // reads as a separate "sheet" floating over the dark chrome — the
+    // same pattern used by Apple Settings and Discord.
+    constexpr float kGutter = 16.0f;   // dark gap between sidebar and content
+
+    ImGui::SetCursorScreenPos(win_tl + ImVec2(0, theme::header_h));
+    ImGui::BeginChild("##dxs_body", ImVec2(win_sz.x, win_sz.y - theme::header_h),
+                      false, ImGuiWindowFlags_NoScrollbar);
     draw_sidebar();
-    ImGui::SameLine(0, 0);
-
-    // Content slide-from-right via spring decay.
-    static float slide_cur = 0.0f;
-    const  float slide_target = (1.0f - panel_anim.alpha) * 40.0f;
-    slide_cur = anim::spring(slide_cur, slide_target, 0.09f, dt);
-    if (slide_cur < 0.2f) slide_cur = 0.0f;
-
-    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, panel_anim.alpha);
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + slide_cur);
+    ImGui::SameLine(0, kGutter);
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, panel_alpha);
     draw_content();
     ImGui::PopStyleVar();
     ImGui::EndChild();
 
     draw_toasts();
     ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+}
+
+void ClickGui::draw_header() {
+    ImDrawList*  dl      = ImGui::GetWindowDrawList();
+    const ImVec2 tl      = ImGui::GetWindowPos();
+    const float  avail_w = ImGui::GetWindowSize().x;
+
+    // Header fill — one step lighter than the root so it reads as a toolbar.
+    dl->AddRectFilled(tl, tl + ImVec2(avail_w, theme::header_h),
+                      theme::to_u32(theme::surface),
+                      theme::radius_xl, ImDrawFlags_RoundCornersTop);
+
+    // Brand block: small square mark + wordmark + subtitle.
+    const ImVec2 mark_tl = tl + ImVec2(theme::space_lg, (theme::header_h - 18.0f) * 0.5f);
+    const ImVec2 mark_br = mark_tl + ImVec2(18.0f, 18.0f);
+    dl->AddRectFilled(mark_tl, mark_br, theme::to_u32(theme::on_surface), 4.0f);
+    dl->AddRectFilled(mark_tl + ImVec2(4, 4), mark_br - ImVec2(4, 4),
+                      theme::to_u32(theme::surface), 2.0f);
+
+    const float text_x = mark_br.x + theme::space_sm;
+    const float text_y = tl.y +
+        (theme::header_h - ImGui::GetTextLineHeight() * 2.0f - 2.0f) * 0.5f;
+
+    ImGui::SetCursorScreenPos(ImVec2(text_x, text_y));
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface);
+    ImGui::SetWindowFontScale(theme::scale_header);
+    ImGui::TextUnformatted("DXSense");
+    ImGui::SetWindowFontScale(theme::scale_default);
+    ImGui::PopStyleColor();
+
+    ImGui::SetCursorScreenPos(ImVec2(text_x, text_y + ImGui::GetTextLineHeight() + 2.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+    ImGui::SetWindowFontScale(theme::scale_caption);
+    ImGui::TextUnformatted("NeoX3 runtime overlay  ·  dwrg");
+    ImGui::SetWindowFontScale(theme::scale_default);
+    ImGui::PopStyleColor();
+
+    // --- Right-hand controls ---------------------------------------------
+    // FPS readout — plain text, no pill, so it reads as a passive metric
+    // (colour-coded by actual framerate so perf regressions catch the eye).
+    char fps_text[24];
+    const float fps = ImGui::GetIO().Framerate;
+    std::snprintf(fps_text, sizeof(fps_text), "%.0f FPS", fps);
+    const ImVec4 fps_col =
+        fps >= 55.0f ? theme::on_surface_variant :
+        fps >= 30.0f ? theme::warn               :
+                       theme::bad;
+
+    // Close button — hit target is a transparent InvisibleButton; the X
+    // glyph is drawn by hand via DrawList so it's always perfectly
+    // centred regardless of font metric quirks (the Fluent "Chrome Close"
+    // codepoint renders noticeably off-centre in SegoeIcons.ttf).
+    const ImVec2 close_pos = tl + ImVec2(
+        avail_w - theme::space_lg - theme::icon_btn_sz,
+        (theme::header_h - theme::icon_btn_sz) * 0.5f);
+    ImGui::SetCursorScreenPos(close_pos);
+    ImGui::PushID("##close");
+    ImGui::InvisibleButton("##close_hit",
+                           ImVec2(theme::icon_btn_sz, theme::icon_btn_sz));
+    const bool close_hover = ImGui::IsItemHovered();
+    const bool close_clicked = ImGui::IsItemClicked();
+    ImGui::PopID();
+
+    if (close_hover) {
+        dl->AddRectFilled(close_pos,
+                          close_pos + ImVec2(theme::icon_btn_sz, theme::icon_btn_sz),
+                          theme::to_u32(theme::surface_ctn_high),
+                          theme::radius_sm);
+    }
+    const ImVec2 cc = close_pos + ImVec2(theme::icon_btn_sz * 0.5f,
+                                          theme::icon_btn_sz * 0.5f);
+    const float  xr = 6.0f;
+    const ImU32  xcol = theme::to_u32(close_hover ? theme::on_surface
+                                                  : theme::on_surface_variant);
+    dl->AddLine(cc - ImVec2(xr, xr), cc + ImVec2(xr, xr), xcol, 1.6f);
+    dl->AddLine(cc + ImVec2(-xr, xr), cc + ImVec2(xr, -xr), xcol, 1.6f);
+
+    if (close_clicked) {
+        close_via_x();
+    }
+
+    const ImVec2 fps_sz = ImGui::CalcTextSize(fps_text);
+    ImGui::SetCursorScreenPos(ImVec2(
+        close_pos.x - theme::space_lg - fps_sz.x,
+        tl.y + (theme::header_h - fps_sz.y) * 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Text, fps_col);
+    ImGui::TextUnformatted(fps_text);
+    ImGui::PopStyleColor();
 }
 
 void ClickGui::draw_sidebar() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
-                        ImVec2(theme::space_md, theme::space_lg));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::bg_surface);
+                        ImVec2(theme::space_md, theme::space_md));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::transparent);
     ImGui::BeginChild("##dxs_sidebar", ImVec2(theme::sidebar_w, 0), false,
                       ImGuiWindowFlags_NoScrollbar);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    ImGui::Dummy(ImVec2(0, theme::space_md));
 
     std::map<std::string, std::vector<IPanel*>> groups;
     std::vector<std::string>                    group_order;
@@ -172,20 +320,19 @@ void ClickGui::draw_sidebar() {
         groups[cat].push_back(p.get());
     }
 
-    ImDrawList* dl    = ImGui::GetWindowDrawList();
     const float dt    = ImGui::GetIO().DeltaTime;
     float       sel_y = 0.0f, sel_h = 0.0f;
     bool        sel_found = false;
 
     for (const auto& cat : group_order) {
         if (!cat.empty()) {
-            ImGui::Dummy(ImVec2(0, theme::space_xs));
-            ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
+            ImGui::Dummy(ImVec2(0, theme::space_md));
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
             ImGui::SetWindowFontScale(theme::scale_caption);
-            ImGui::Indent(theme::space_sm - theme::space_xxs);
+            ImGui::Indent(theme::space_sm);
             ImGui::TextUnformatted(cat.c_str());
-            ImGui::Unindent(theme::space_sm - theme::space_xxs);
-            ImGui::SetWindowFontScale(1.00f);
+            ImGui::Unindent(theme::space_sm);
+            ImGui::SetWindowFontScale(theme::scale_default);
             ImGui::PopStyleColor();
             ImGui::Dummy(ImVec2(0, theme::space_xs));
         }
@@ -208,49 +355,58 @@ void ClickGui::draw_sidebar() {
             const bool hovered = ImGui::IsItemHovered();
             ImGui::PopStyleColor(3);
 
-            if (hovered || active) {
-                ImVec4 glow = active ? theme::accent_soft : theme::bg_hover;
-                if (!active) glow.w *= 0.6f;
-                dl->AddRectFilled(cursor + ImVec2(theme::space_sm - theme::space_xxs,
-                                                  theme::space_xxs),
-                                  cursor + ImVec2(row_w - (theme::space_sm - theme::space_xxs),
-                                                  theme::row_h - theme::space_xxs),
-                                  theme::to_u32(glow), theme::radius_md);
+            // Row background — hover only (subtle gray lift), active has
+            // no background, just text brightening + left-line indicator.
+            const ImVec2 row_tl = cursor + ImVec2(theme::space_xs, 1.0f);
+            const ImVec2 row_br = cursor + ImVec2(row_w - theme::space_xs, theme::row_h - 1.0f);
+            if (hovered && !active) {
+                dl->AddRectFilled(row_tl, row_br,
+                                  theme::to_u32(theme::surface_ctn_high),
+                                  theme::radius_md);
             }
             if (active) { sel_y = cursor.y; sel_h = theme::row_h; sel_found = true; }
 
+            // Icon + label alignment: icon sits in an 18 px column from the
+            // row's left edge; label starts 8 px after so the pair reads as
+            // one unit rather than two floating fragments.
             const float text_y = cursor.y +
                 (theme::row_h - ImGui::GetTextLineHeight()) * 0.5f;
-            const auto  col = theme::to_u32(active ? theme::accent_hot
-                                                   : theme::text_primary);
+            const ImU32 col = theme::to_u32(active ? theme::on_surface :
+                                            hovered ? theme::on_surface :
+                                                      theme::on_surface_variant);
+            const float icon_x  = cursor.x + theme::space_md;
+            const float label_x = icon_x + 18.0f + theme::space_sm;
             std::string_view ic = p->icon();
-            if (!ic.empty())
-                dl->AddText(ImVec2(cursor.x + theme::space_lg + theme::space_xs, text_y), col,
+            if (!ic.empty()) {
+                dl->AddText(ImVec2(icon_x, text_y), col,
                             ic.data(), ic.data() + ic.size());
+            }
             dl->AddText(
-                ImVec2(cursor.x + theme::space_xl + theme::space_lg + theme::space_xs + theme::space_xxs, text_y),
-                col,
-                        p->title().data(),
-                        p->title().data() + p->title().size());
+                ImVec2(label_x, text_y), col,
+                p->title().data(),
+                p->title().data() + p->title().size());
 
             ImGui::PopID();
         }
     }
 
-    // Animated selection indicator — 3 px amber bar springing between rows.
+    // Active row left-line indicator — 2 px, pure white, glides between
+    // rows. Two Channels chase y + height independently.
     if (sel_found) {
+        sel_bar_y_ch_.half_life = 0.09f;
+        sel_bar_h_ch_.half_life = 0.10f;
         if (!sel_bar_ready_) {
-            sel_bar_y_ = sel_y; sel_bar_h_ = sel_h;
+            sel_bar_y_ch_.snap_to(sel_y);
+            sel_bar_h_ch_.snap_to(sel_h);
             sel_bar_ready_ = true;
-        } else {
-            sel_bar_y_ = anim::spring(sel_bar_y_, sel_y, 0.08f, dt);
-            sel_bar_h_ = anim::spring(sel_bar_h_, sel_h, 0.10f, dt);
         }
+        const float y = sel_bar_y_ch_.step(sel_y, dt);
+        const float h = sel_bar_h_ch_.step(sel_h, dt);
         const ImVec2 wp = ImGui::GetWindowPos();
-        dl->AddRectFilled({wp.x, sel_bar_y_ + (theme::space_sm - theme::space_xxs)},
-                          {wp.x + theme::card_stripe_w,
-                           sel_bar_y_ + sel_bar_h_ - (theme::space_sm - theme::space_xxs)},
-                          theme::to_u32(theme::accent_hot), theme::radius_sm);
+        dl->AddRectFilled(
+            ImVec2(wp.x + theme::space_sm - 4.0f, y + theme::space_sm),
+            ImVec2(wp.x + theme::space_sm - 2.0f, y + h - theme::space_sm),
+            theme::to_u32(theme::on_surface), 1.0f);
     }
 
     ImGui::EndChild();
@@ -259,40 +415,79 @@ void ClickGui::draw_sidebar() {
 }
 
 void ClickGui::draw_content() {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
-                        ImVec2(theme::space_xxl, theme::space_xl));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::bg_root);
+    // Content card — visibly brighter than the dark sidebar/root so the
+    // separation is obvious. Full rounded corners + hairline border give
+    // it the "floating sheet" look of a premium settings UI.
+    const float pad_x = 48.0f;                                // generous left margin
+    const float pad_y = theme::space_xxl;                      // 32 px top
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pad_x, pad_y));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::transparent);
+    ImGui::PushStyleColor(ImGuiCol_Border, theme::transparent);
 
-    ImGui::BeginChild("##dxs_content", ImVec2(0, 0), false);
+    // Inset: shrink vertically by 8 px top/bottom so the card floats.
+    const float v_inset = theme::space_sm;
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + v_inset);
+    const float avail_h = ImGui::GetContentRegionAvail().y - v_inset;
+
+    // Passing `true` for border forces ImGui to respect WindowPadding. We made the
+    // border transparent above, so it's structurally padded but visually clean.
+    ImGui::BeginChild("##dxs_content", ImVec2(0, avail_h), true);
+    {
+        ImDrawList* content_dl = ImGui::GetWindowDrawList();
+        const ImVec2 content_tl = ImGui::GetWindowPos();
+        const ImVec2 content_sz = ImGui::GetWindowSize();
+
+        // Rounded card background — much brighter than root surface_dim
+        // (#0b0b0c ≈ 4%).  At 20% gray this is unmissable.
+        constexpr ImVec4 content_bg = {0.200f, 0.200f, 0.210f, 1.0f};
+        content_dl->AddRectFilled(
+            content_tl, content_tl + content_sz,
+            theme::to_u32(content_bg),
+            theme::radius_lg);
+
+        // Visible border so edges read clearly
+        constexpr ImVec4 content_border = {1.0f, 1.0f, 1.0f, 0.12f};
+        content_dl->AddRect(
+            content_tl, content_tl + content_sz,
+            theme::to_u32(content_border),
+            theme::radius_lg, 0, 1.0f);
+    }
 
     IPanel* active = nullptr;
     for (auto& p : panels_) if (p->id() == selected_id_) { active = p.get(); break; }
 
     if (active) {
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_primary);
+        // Minimal page header — title + breadcrumb. No frame, no accent.
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface);
         ImGui::SetWindowFontScale(theme::scale_title);
         ImGui::TextUnformatted(std::string(active->title()).c_str());
-        ImGui::SetWindowFontScale(1.00f);
+        ImGui::SetWindowFontScale(theme::scale_default);
         ImGui::PopStyleColor();
 
+        ImGui::Dummy(ImVec2(0, theme::space_xs));
         const std::string cat(active->category());
-        if (!cat.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-            ImGui::SetWindowFontScale(theme::scale_body);
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+        ImGui::SetWindowFontScale(theme::scale_caption);
+        if (cat.empty()) {
+            ImGui::Text("%s", std::string(active->id()).c_str());
+        } else {
             ImGui::Text("%s  /  %s", cat.c_str(), std::string(active->id()).c_str());
-            ImGui::SetWindowFontScale(1.00f);
-            ImGui::PopStyleColor();
         }
-        ImGui::Dummy(ImVec2(0, theme::space_md));
+        ImGui::SetWindowFontScale(theme::scale_default);
+        ImGui::PopStyleColor();
+
+        ImGui::Dummy(ImVec2(0, theme::space_xl));
+
+        // The actual panel content
         active->draw();
     } else {
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
         ImGui::TextUnformatted("No panel selected.");
         ImGui::PopStyleColor();
     }
 
     ImGui::EndChild();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
     ImGui::PopStyleVar();
 }
 
@@ -302,27 +497,27 @@ void ClickGui::draw_toasts() {
     if (toasts_.empty()) return;
 
     ImVec2 pos = ImGui::GetWindowPos() + ImGui::GetWindowSize()
-               - ImVec2(theme::control_h_md, theme::control_h_md);
+               - ImVec2(theme::space_lg, theme::space_lg);
 
     for (auto it = toasts_.rbegin(); it != toasts_.rend(); ++it) {
         const float life  = float(it->fade_at - now) / float(kToastDurationSec);
         const float alpha = std::clamp(life * 1.3f, 0.0f, 1.0f);
-        ImVec4 bg     = theme::bg_elevated; bg.w     *= alpha;
-        ImVec4 border = theme::accent_edge; border.w *= alpha;
-        ImVec4 text   = theme::text_primary; text.w  *= alpha;
+        ImVec4 bg     = theme::surface_ctn_high; bg.w     *= alpha;
+        ImVec4 border = theme::outline;          border.w *= alpha;
+        ImVec4 text   = theme::on_surface;       text.w   *= alpha;
 
         const ImVec2 text_sz = ImGui::CalcTextSize(it->text.c_str());
-        const ImVec2 toast_pad(theme::space_lg + theme::space_xs + theme::space_xxs,
-                               theme::space_md + theme::space_xxs);
-        const ImVec2 size    = text_sz + toast_pad;
+        const ImVec2 toast_pad(theme::space_md + theme::space_xs,
+                               theme::space_sm + theme::space_xxs);
+        const ImVec2 size    = text_sz + toast_pad * 2;
         const ImVec2 tl      = pos - size;
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        theme::draw_shadow(tl, tl + size, theme::radius_md, theme::space_sm - theme::space_xxs);
-        dl->AddRectFilled(tl, tl + size, theme::to_u32(bg),    theme::radius_md);
-        dl->AddRect      (tl, tl + size, theme::to_u32(border),theme::radius_md, 0, 1.0f);
-        dl->AddText      (tl + toast_pad * 0.5f, theme::to_u32(text), it->text.c_str());
-        pos = tl - ImVec2(0, theme::space_md);
+        theme::draw_shadow(tl, tl + size, theme::radius_md, 0.0f);
+        dl->AddRectFilled(tl, tl + size, theme::to_u32(bg),     theme::radius_md);
+        dl->AddRect      (tl, tl + size, theme::to_u32(border), theme::radius_md, 0, 1.0f);
+        dl->AddText      (tl + toast_pad, theme::to_u32(text), it->text.c_str());
+        pos = tl - ImVec2(0, theme::space_sm);
     }
 }
 

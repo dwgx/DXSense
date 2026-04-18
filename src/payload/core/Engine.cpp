@@ -8,6 +8,7 @@
 #include "game/CameraSampler.hpp"
 #include "game/GameMemory.hpp"
 #include "hook/HookManager.hpp"
+#include "hook/InputGuard.hpp"
 #include "hook/WndProcHook.hpp"
 #include "render/Dx11Backend.hpp"
 #include "scripting/PythonBridge.hpp"
@@ -47,7 +48,15 @@ void Engine::start(void* this_module) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.IniFilename  = nullptr;  // No imgui.ini clutter next to the game exe.
+
+    // Park imgui.ini inside the Config directory (%APPDATA%\DXSense\) so
+    // window positions persist across reinjects without dumping dotfiles
+    // next to the game exe. Config::load() created the parent directory for
+    // its own config.ini — we ride on that. The path is held in a static
+    // string because ImGui stores the pointer directly.
+    static std::string imgui_ini_path =
+        (Config::instance().path().parent_path() / "imgui.ini").string();
+    io.IniFilename = imgui_ini_path.c_str();
 
     // Fonts must be loaded before Dx11Backend builds the font texture atlas.
     fonts::load();
@@ -92,6 +101,12 @@ void Engine::start(void* this_module) {
         EventLog::instance().start();
     }
 
+    // Input guard — disarms the game's SetCursorPos / ClipCursor "recentre
+    // the cursor every frame for camera look" loop whenever the overlay is
+    // visible. Without this, dwrg drags the cursor back to centre between
+    // ImGui frames and the user can't click or drag our window.
+    InputGuard::instance().install();
+
     // Camera sampler runs on its OWN thread so Python GIL contention never
     // stalls the render pipeline. Must start after PythonBridge is ready.
     CameraSampler::instance().start();
@@ -128,6 +143,50 @@ void Engine::stop() {
     Config::instance().flush();
     HookManager::instance().shutdown();
     Logger::instance().shutdown();
+}
+
+namespace {
+
+DWORD WINAPI eject_worker(LPVOID mod) {
+    // Give the farewell splash time to play out. The animation uses
+    // ImGui::GetTime(), which keeps ticking as long as the render thread
+    // is still presenting — tearing ImGui down here before the animation
+    // finishes is exactly what made the 5-second farewell look like a
+    // 120 ms flash. The splash module owns its own duration constant,
+    // so sleeping a hair past it is sufficient.
+    //
+    // Using ::Sleep on the worker thread is fine because the render
+    // thread keeps running the overlay (splash::draw) on every Present.
+    constexpr DWORD kSplashBudgetMs = 2400;   // matches Splash kExitDuration + margin
+    Sleep(kSplashBudgetMs);
+
+    // stop() disables every MinHook detour (SuspendThread/patch/Resume
+    // inside MinHook guarantees no thread is mid-detour on return),
+    // joins the CameraSampler worker, halts RemoteBridge, destroys the
+    // ImGui context, and flushes config.
+    dxs::Engine::instance().stop();
+
+    // Extra margin in case the game's render thread was in the middle of
+    // some trampoline-adjacent code path MinHook can't freeze (e.g., in
+    // our vtable-chained ResizeBuffers detour about to return to DX).
+    Sleep(200);
+
+    // FreeLibraryAndExitThread atomically drops our module's ref count
+    // and terminates the thread — the pair is the documented pattern for
+    // self-unloading a DLL, because calling FreeLibrary from a thread
+    // whose code lives in the DLL being freed would crash on return.
+    FreeLibraryAndExitThread(static_cast<HMODULE>(mod), 0);
+#pragma warning(suppress : 4702)
+    return 0;  // FreeLibraryAndExitThread never returns.
+}
+
+}  // namespace
+
+void Engine::request_eject() {
+    if (!module_) return;
+    if (HANDLE t = CreateThread(nullptr, 0, &eject_worker, module_, 0, nullptr); t) {
+        CloseHandle(t);
+    }
 }
 
 }  // namespace dxs

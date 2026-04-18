@@ -1,9 +1,11 @@
 build/
+build_*/
 out/
 cmake-build-*/
 .vs/
 .vscode/
 .idea/
+.claude/
 *.vcxproj.user
 CMakeSettings.json
 *.obj
@@ -11,6 +13,13 @@ CMakeSettings.json
 *.ilk
 *.exp
 *.lib
+
+# ImGui state now lives at %APPDATA%\DXSense\imgui.ini; an old copy may
+# linger in the working dir from a pre-redirect build.
+imgui.ini
+
+# /export session transcripts — throwaway notes, not project state.
+2026-*.txt
 
 # Per-machine MCP config (absolute Python path; regenerate with `python -m ida_pro_mcp --install claude --scope project`)
 .mcp.json

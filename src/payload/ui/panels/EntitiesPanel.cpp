@@ -11,6 +11,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <sstream>
 
@@ -179,6 +180,7 @@ void EntitiesPanel::absorb_output() {
 void EntitiesPanel::draw() {
     auto& bridge = PythonBridge::instance();
     const double now = ImGui::GetTime();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
 
     // Auto-refresh heartbeat — every 2 s when enabled and we're visible.
     if (auto_refresh_ && !awaiting_ && bridge.ready()
@@ -188,11 +190,13 @@ void EntitiesPanel::draw() {
     }
     if (awaiting_) absorb_output();
 
+    theme::section_label("ENTITY DISCOVERY");
+    ImGui::Dummy(ImVec2(0, theme::space_xs));
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
     ImGui::TextWrapped("%s", L("entities.intro").data());
     ImGui::PopStyleColor();
 
-    ImGui::Dummy(ImVec2(0, 8));
+    ImGui::Dummy(ImVec2(0, theme::space_md));
 
     // Top control row ---------------------------------------------------------
     ImGui::BeginDisabled(!bridge.ready() || awaiting_);
@@ -202,28 +206,31 @@ void EntitiesPanel::draw() {
     ImGui::EndDisabled();
 
     ImGui::SameLine();
-    if (ImGui::Checkbox(L("entities.auto_refresh").data(), &auto_refresh_))
+    if (theme::checkbox(L("entities.auto_refresh").data(), &auto_refresh_))
         Config::instance().set_bool("entities.auto_refresh", auto_refresh_);
 
-    ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Text,
-        bridge.ready() ? theme::text_muted : theme::warn);
-    if (!bridge.ready())       ImGui::Text("(bridge offline)");
-    else if (awaiting_)        ImGui::Text("scanning... %.1fs", now - last_kick_at_);
-    else                       ImGui::Text("%zu rows", rows_.size());
-    ImGui::PopStyleColor();
+    ImGui::SameLine(0, theme::space_md);
+    if (!bridge.ready())       theme::badge(theme::Status::Warn, "Bridge offline");
+    else if (awaiting_) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "Scanning %.1fs", now - last_kick_at_);
+        theme::badge(theme::Status::Info, buf);
+    } else {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%zu rows", rows_.size());
+        theme::badge(theme::Status::Good, buf);
+    }
 
-    ImGui::SameLine(0, 24);
+    ImGui::SameLine(0, theme::space_lg);
     ImGui::PushItemWidth(220);
     ImGui::InputTextWithHint("##filter", L("common.filter").data(),
                              filter_, sizeof(filter_));
     ImGui::PopItemWidth();
 
     // Category filter strip ---------------------------------------------------
-    ImGui::Dummy(ImVec2(0, 4));
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::TextUnformatted(L("entities.categories").data());
-    ImGui::PopStyleColor();
+    ImGui::Dummy(ImVec2(0, theme::space_md));
+    theme::section_label(L("entities.categories"));
+    ImGui::Dummy(ImVec2(0, theme::space_xs));
 
     const float avail = ImGui::GetContentRegionAvail().x;
     float row_used = 0;
@@ -235,12 +242,17 @@ void EntitiesPanel::draw() {
         else if (row_used > 0)        { ImGui::SameLine(); }
 
         ImGui::PushStyleColor(ImGuiCol_Button,
-                              on ? theme::accent_soft : theme::bg_surface);
+                              on ? theme::accent_soft : theme::bg_panel);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                              on ? theme::with_alpha(theme::accent_soft, 1.20f)
+                                 : theme::bg_hover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                              on ? theme::bg_active : theme::bg_active);
         if (ImGui::Button(cat, ImVec2(btn_w, 24))) {
             if (on) cat_hide_.insert(cat); else cat_hide_.erase(cat);
             mutated = true;
         }
-        ImGui::PopStyleColor();
+        ImGui::PopStyleColor(3);
         row_used += btn_w + ImGui::GetStyle().ItemSpacing.x;
     }
     if (mutated) {
@@ -249,10 +261,15 @@ void EntitiesPanel::draw() {
         Config::instance().set("entities.categories_hidden", joined);
     }
 
-    ImGui::Dummy(ImVec2(0, 6));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
 
     // Table -------------------------------------------------------------------
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::bg_surface);
+    const ImVec2 tbl_tl = ImGui::GetCursorScreenPos();
+    const ImVec2 tbl_br = tbl_tl + ImVec2(ImGui::GetContentRegionAvail().x,
+                                          ImGui::GetContentRegionAvail().y);
+    theme::draw_surface(dl, tbl_tl, tbl_br, theme::radius_lg, theme::bg_surface, &theme::accent, 2.0f, false);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(theme::space_lg, theme::space_lg));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::transparent);
     ImGui::BeginChild("##ent_tbl", ImVec2(0, 0), false);
 
     if (ImGui::BeginTable("##ent", 4,
@@ -298,6 +315,7 @@ void EntitiesPanel::draw() {
 
     ImGui::EndChild();
     ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
 }
 
 }  // namespace dxs

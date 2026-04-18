@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IHudWidget.hpp"
+#include "ui/framework/Animation.hpp"
 
 #include <memory>
 #include <string>
@@ -55,6 +56,12 @@ private:
     std::unordered_map<std::string, Slot>          slots_;
     bool                                           global_ = true;
     bool                                           edit_   = false;
+
+    // Tracks the HUD's current fade level. Target is driven from ClickGui's
+    // current_alpha() so the two layers crossfade cleanly instead of popping.
+    // fade_ch_ is the one animation primitive driving fade_alpha_.
+    anim::Channel                                  fade_ch_{};
+    float                                          fade_alpha_ = 0.0f;
 };
 
 }  // namespace dxs
