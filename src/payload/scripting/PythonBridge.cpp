@@ -27,21 +27,23 @@ bool PythonBridge::initialize(HMODULE host_module) {
     };
 
     bool ok =
-        R(api_.Py_IsInitialized,       "Py_IsInitialized") &&
-        R(api_.PyGILState_Ensure,      "PyGILState_Ensure") &&
-        R(api_.PyGILState_Release,     "PyGILState_Release") &&
-        R(api_.PyRun_SimpleString,     "PyRun_SimpleString") &&
-        R(api_.PyImport_AddModule,     "PyImport_AddModule") &&
-        R(api_.PyModule_GetDict,       "PyModule_GetDict") &&
-        R(api_.PyDict_GetItemString,   "PyDict_GetItemString") &&
-        R(api_.PyDict_SetItemString,   "PyDict_SetItemString") &&
-        R(api_.PyObject_GetAttrString, "PyObject_GetAttrString") &&
-        R(api_.PyObject_CallObject,    "PyObject_CallObject") &&
-        R(api_.PyUnicode_AsUTF8,       "PyUnicode_AsUTF8") &&
-        R(api_.PyUnicode_FromString,   "PyUnicode_FromString") &&
-        R(api_.PyErr_Print,            "PyErr_Print") &&
-        R(api_.PyErr_Occurred,         "PyErr_Occurred") &&
-        R(api_.PyErr_Clear,            "PyErr_Clear");
+        R(api_.Py_IsInitialized,          "Py_IsInitialized") &&
+        R(api_.PyGILState_Ensure,         "PyGILState_Ensure") &&
+        R(api_.PyGILState_Release,        "PyGILState_Release") &&
+        R(api_.PyRun_SimpleString,        "PyRun_SimpleString") &&
+        R(api_.PyImport_AddModule,        "PyImport_AddModule") &&
+        R(api_.PyModule_GetDict,          "PyModule_GetDict") &&
+        R(api_.PyDict_GetItemString,      "PyDict_GetItemString") &&
+        R(api_.PyDict_SetItemString,      "PyDict_SetItemString") &&
+        R(api_.PyObject_GetAttrString,    "PyObject_GetAttrString") &&
+        R(api_.PyObject_CallObject,       "PyObject_CallObject") &&
+        R(api_.PyUnicode_AsUTF8,          "PyUnicode_AsUTF8") &&
+        R(api_.PyUnicode_FromString,      "PyUnicode_FromString") &&
+        R(api_.PyBytes_AsStringAndSize,   "PyBytes_AsStringAndSize") &&
+        R(api_.Py_DecRef,                 "Py_DecRef") &&
+        R(api_.PyErr_Print,               "PyErr_Print") &&
+        R(api_.PyErr_Occurred,            "PyErr_Occurred") &&
+        R(api_.PyErr_Clear,               "PyErr_Clear");
 
     if (!ok) {
         DXS_WARN("PythonBridge: host DLL does not export the expected CPython surface");
@@ -176,6 +178,56 @@ std::string PythonBridge::exec_and_collect(std::string_view source) {
         out.swap(buffer_);
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// High-perf direct call. Skips the stdout detour entirely:
+//   1. Acquire GIL
+//   2. Look up module by name (interpreter-internal hash, O(1))
+//   3. Borrow module's __dict__, fetch the target function
+//   4. PyObject_CallObject with an empty args tuple
+//   5. If the return is bytes, PyBytes_AsStringAndSize into our out buffer
+//   6. Decref + release GIL
+//
+// All steps run under the exec_mtx_ so we don't race the REPL-facing path.
+// The whole thing is typically <100 µs against a snap() that struct-packs
+// a pre-computed blob — roughly 10–20× faster than the old text protocol.
+// ---------------------------------------------------------------------------
+bool PythonBridge::call_bytes(const char* module_name,
+                              const char* func_name,
+                              std::string& out) {
+    out.clear();
+    if (!ready_ || !module_name || !func_name) return false;
+    std::scoped_lock exec_guard(exec_mtx_);
+
+    GilLock gil(this);
+    PyObject* mod = api_.PyImport_AddModule(module_name);   // borrowed
+    if (!mod) { api_.PyErr_Clear(); return false; }
+    PyObject* dict = api_.PyModule_GetDict(mod);            // borrowed
+    if (!dict) { api_.PyErr_Clear(); return false; }
+    PyObject* func = api_.PyDict_GetItemString(dict, func_name);  // borrowed
+    if (!func) { api_.PyErr_Clear(); return false; }
+
+    PyObject* result = api_.PyObject_CallObject(func, nullptr);   // new ref
+    if (!result) {
+        // Drain traceback into the buffer in case the caller wants to
+        // peek at drain_output() after a failure.
+        if (api_.PyErr_Occurred && api_.PyErr_Occurred()) api_.PyErr_Print();
+        api_.PyErr_Clear();
+        return false;
+    }
+
+    char* data = nullptr;
+    DxsPySSizeT len = 0;
+    const int rc = api_.PyBytes_AsStringAndSize(result, &data, &len);
+    if (rc == 0 && data && len >= 0) {
+        out.assign(data, static_cast<size_t>(len));
+        api_.Py_DecRef(result);
+        return true;
+    }
+    api_.PyErr_Clear();
+    api_.Py_DecRef(result);
+    return false;
 }
 
 }  // namespace dxs

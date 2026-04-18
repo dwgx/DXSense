@@ -46,72 +46,91 @@ float dot3(const Vec3& a, const Vec3& b) {
 
 }  // namespace
 
+// ---------------------------------------------------------------------------
+// Raycast panel — flat ChatGPT-style layout. No floating inner cards, no
+// hard-coded heights; content flows naturally so section labels and badges
+// never overlap the content above them. Vectors render as a two-column
+// grid, the ranked crosshair candidates land in a single plain table.
+// ---------------------------------------------------------------------------
 void RaycastPanel::draw() {
-    auto& sampler = CameraSampler::instance();
-    auto  snap    = sampler.snapshot();
+    auto snap = CameraSampler::instance().snapshot();
 
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
     ImGui::TextWrapped(
         "Camera-origin line-of-sight probe. Uses the live view basis from "
-        "CameraSampler (forward / right / up) and the engine's own "
-        "world->screen projection via cam.world_to_screen.");
+        "CameraSampler and the engine's world_to_screen projection for the "
+        "screen column.");
     ImGui::PopStyleColor();
 
-    ImGui::Dummy(ImVec2(0, 10));
+    ImGui::Dummy(ImVec2(0, theme::space_md));
 
     if (!snap.camera_ready) {
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::warn);
-        ImGui::TextUnformatted("no live camera — enter a 3D scene.");
-        ImGui::PopStyleColor();
+        theme::badge(theme::Status::Warn, "No live camera — enter a 3D scene");
         return;
     }
 
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::TextUnformatted("view basis (world space)");
-    ImGui::PopStyleColor();
-    ImGui::Text("  origin   = (%+.2f, %+.2f, %+.2f)",
-                snap.cam_pos.x, snap.cam_pos.y, snap.cam_pos.z);
-    ImGui::Text("  forward  = (%+.3f, %+.3f, %+.3f)",
-                snap.cam_forward.x, snap.cam_forward.y, snap.cam_forward.z);
-    ImGui::Text("  right    = (%+.3f, %+.3f, %+.3f)",
-                snap.cam_right.x, snap.cam_right.y, snap.cam_right.z);
-    ImGui::Text("  up       = (%+.3f, %+.3f, %+.3f)",
-                snap.cam_up.x, snap.cam_up.y, snap.cam_up.z);
-    // Filter: skip units at (0,0,0) — those are scene-placeholder / decoration
-    // objects (spawn markers, UI reference anchors) that aren't real world
-    // entities. In match state this also skips any unit that hasn't had its
-    // transform resolved yet this tick.
+    // --- View basis readout (flat two-column) -----------------------------
+    theme::section_label("VIEW BASIS", "world space");
+    ImGui::Dummy(ImVec2(0, theme::space_sm));
+
+    if (ImGui::BeginTable("##basis", 2,
+                          ImGuiTableFlags_SizingFixedFit |
+                          ImGuiTableFlags_NoBordersInBody)) {
+        ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch);
+
+        auto row = [](const char* label, const char* fmt, auto... args) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+            ImGui::TextUnformatted(label);
+            ImGui::PopStyleColor();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text(fmt, args...);
+        };
+        row("origin",  "(%+.2f, %+.2f, %+.2f)",
+            snap.cam_pos.x, snap.cam_pos.y, snap.cam_pos.z);
+        row("forward", "(%+.3f, %+.3f, %+.3f)",
+            snap.cam_forward.x, snap.cam_forward.y, snap.cam_forward.z);
+        row("right",   "(%+.3f, %+.3f, %+.3f)",
+            snap.cam_right.x, snap.cam_right.y, snap.cam_right.z);
+        row("up",      "(%+.3f, %+.3f, %+.3f)",
+            snap.cam_up.x, snap.cam_up.y, snap.cam_up.z);
+        row("fov",     "%.1f°",    snap.fov_y);
+        ImGui::EndTable();
+    }
+
     auto is_real = [](const Vec3& p) {
         return std::fabs(p.x) + std::fabs(p.y) + std::fabs(p.z) > 0.01f;
     };
     int real_count = 0;
     for (const auto& u : snap.units) if (is_real(u.pos)) ++real_count;
 
-    ImGui::Text("  units    = %d live (%d positioned)   ·   fov %.1f°",
-                static_cast<int>(snap.units.size()), real_count, snap.fov_y);
+    // Plain count line beneath the basis table.
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+    ImGui::Text("%d units live  ·  %d positioned",
+                static_cast<int>(snap.units.size()), real_count);
+    ImGui::PopStyleColor();
 
     if (!snap.in_battle) {
         ImGui::Dummy(ImVec2(0, theme::space_sm));
-        theme::status_chip(theme::Status::Warn, "lobby — enter a match for useful raycast data");
-        ImGui::Dummy(ImVec2(0, theme::space_xs));
+        theme::badge(theme::Status::Idle, "Lobby scene — enter a match for useful data");
     }
 
-    ImGui::Dummy(ImVec2(0, theme::space_md));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
 
-    // Request world->screen projection for every POSITIONED unit only.
-    std::vector<std::pair<std::uint64_t, Vec3>> request;
-    request.reserve(real_count);
-    for (const auto& u : snap.units) {
-        if (is_real(u.pos)) request.emplace_back(u.uid, u.pos);
-    }
-    sampler.request_world_to_screen(std::move(request));
+    // --- Candidates table -------------------------------------------------
+    theme::section_label("CROSSHAIR CANDIDATES", "closest to forward");
+    ImGui::Dummy(ImVec2(0, theme::space_sm));
 
-    // Rank positioned units by angular offset from view forward.
+    const ImVec2 viewport = ImGui::GetIO().DisplaySize;
     struct Row {
         std::uint64_t uid;
         int           kind;
         float         angle_deg;
         float         dist;
+        bool          has_screen;
+        float         sx, sy;
     };
     std::vector<Row> ranked;
     ranked.reserve(real_count);
@@ -125,24 +144,28 @@ void RaycastPanel::draw() {
         Vec3 dn{ d.x / len, d.y / len, d.z / len };
         const float cos_a = dot3(dn, snap.cam_forward);
         const float ang   = std::acos(std::clamp(cos_a, -1.0f, 1.0f)) * 57.29578f;
-        ranked.push_back(Row{ u.uid, u.kind, ang, len });
+        const auto sp = snap.project(u.pos, viewport.x, viewport.y);
+        ranked.push_back(Row{
+            u.uid, u.kind, ang,
+            len * theme::world_to_meter,   // display distance in metres
+            sp.has_value(),
+            sp ? sp->first  : 0.0f,
+            sp ? sp->second : 0.0f,
+        });
     }
     std::sort(ranked.begin(), ranked.end(),
               [](const Row& a, const Row& b) { return a.angle_deg < b.angle_deg; });
 
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
     if (ranked.empty()) {
-        ImGui::TextUnformatted("no positioned entities in view");
-    } else {
-        ImGui::TextUnformatted("closest to crosshair (angular offset)");
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+        ImGui::TextUnformatted("No positioned entities in view.");
+        ImGui::PopStyleColor();
+        return;
     }
-    ImGui::PopStyleColor();
-
-    if (ranked.empty()) return;
 
     if (ImGui::BeginTable("raycast_table", 5,
-                          ImGuiTableFlags_BordersInner |
                           ImGuiTableFlags_RowBg |
+                          ImGuiTableFlags_BordersInnerH |
                           ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("kind");
         ImGui::TableSetupColumn("uid");
@@ -157,15 +180,18 @@ void RaycastPanel::draw() {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(kind_name(r.kind));
             ImGui::TableSetColumnIndex(1);
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
             ImGui::Text("%llu", static_cast<unsigned long long>(r.uid));
+            ImGui::PopStyleColor();
             ImGui::TableSetColumnIndex(2); ImGui::Text("%.1f°", r.angle_deg);
-            ImGui::TableSetColumnIndex(3); ImGui::Text("%.1f",  r.dist);
+            ImGui::TableSetColumnIndex(3); ImGui::Text("%.1fm",  r.dist);
             ImGui::TableSetColumnIndex(4);
-            const auto it = snap.screen.find(r.uid);
-            if (it != snap.screen.end()) {
-                ImGui::Text("%.0f, %.0f", it->second.first, it->second.second);
+            if (r.has_screen) {
+                ImGui::Text("%.0f, %.0f", r.sx, r.sy);
             } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_disabled);
                 ImGui::TextUnformatted("—");
+                ImGui::PopStyleColor();
             }
         }
         ImGui::EndTable();

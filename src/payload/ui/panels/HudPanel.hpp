@@ -6,11 +6,11 @@
 
 namespace dxs {
 
-class ModulesPanel : public IPanel {
+class HudPanel : public IPanel {
 public:
-    std::string_view id()       const override { return "modules"; }
-    std::string_view category() const override { return L("sidebar.modules"); }
-    std::string_view title()    const override { return L("panel.modules.title"); }
+    std::string_view id()       const override { return "hud"; }
+    std::string_view category() const override { return L("sidebar.hud"); }
+    std::string_view title()    const override { return L("panel.hud.title"); }
     std::string_view icon()     const override { return ICON_HUD; }
     void             draw()           override;
 };

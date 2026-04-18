@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -9,6 +10,11 @@
 // Forward-declared CPython opaque types — we never include Python.h so the
 // build stays hermetic and we're immune to the host's exact Python version.
 struct _object;    using PyObject = _object;
+
+// CPython ssize_t alias — matches Py_ssize_t on x64 Windows (signed pointer-
+// width integer). Using this in the API table lets us bind to PyBytes_* /
+// PyUnicode_* signatures without pulling in Python.h.
+using DxsPySSizeT = std::intptr_t;
 
 namespace dxs {
 
@@ -43,6 +49,17 @@ public:
     // bridge can't interleave with the REPL panel.
     std::string exec_and_collect(std::string_view source);
 
+    // High-performance function call — looks up `module.func` in the
+    // interpreter, calls it with no args, and if the return value is a
+    // `bytes` object copies its contents into `out`. No stdout detour, no
+    // text parsing; under 100 µs per tick when the callee is a pure
+    // `struct.pack(...)`. Returns false if anything in the dispatch path
+    // fails (module missing, function missing, not bytes, etc.) — callers
+    // can fall back to exec_and_collect if they care to diagnose.
+    bool call_bytes(const char* module_name,
+                    const char* func_name,
+                    std::string& out);
+
     // Copy + clear the captured output. Returns an empty string when nothing
     // new has been produced since the last drain.
     std::string drain_output();
@@ -68,6 +85,12 @@ private:
         PyObject*   (*PyObject_CallObject)(PyObject*, PyObject*)        = nullptr;
         const char* (*PyUnicode_AsUTF8)(PyObject*)                      = nullptr;
         PyObject*   (*PyUnicode_FromString)(const char*)                = nullptr;
+        // Binary-fast path: PyBytes_AsStringAndSize hands us a pointer
+        // into the bytes object's internal buffer. Py_DecRef drops the
+        // return-value ref after we've memcpy'd out. Both are part of the
+        // stable CPython ABI and are in NeoX3's re-export table.
+        int         (*PyBytes_AsStringAndSize)(PyObject*, char**, DxsPySSizeT*) = nullptr;
+        void        (*Py_DecRef)(PyObject*)                             = nullptr;
         void        (*PyErr_Print)()                                    = nullptr;
         PyObject*   (*PyErr_Occurred)()                                 = nullptr;
         void        (*PyErr_Clear)()                                    = nullptr;

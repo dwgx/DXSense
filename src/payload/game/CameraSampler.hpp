@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -20,28 +21,35 @@ struct Vec3 { float x{}, y{}, z{}; };
 // Per-frame camera state sampled from the engine's Python layer.
 //
 // Design:
-//   * One Python exec per sample tick (20 Hz by default). The tick is
-//     driven from the overlay's per-frame on_frame() — we deliberately do
-//     NOT run on our own thread, because the host's Python threads already
-//     contend for the GIL; a worker thread here would just queue behind
-//     them and gain nothing.
-//   * Widgets never call the bridge themselves. They register requested
-//     world->screen points via request_world_to_screen(), then read the
-//     result from the snapshot on the next frame. This consolidates all
-//     camera-related Python work into one call per tick regardless of
-//     widget count.
+//   * One Python exec per sample tick (15 Hz by default), driven from a
+//     dedicated worker thread. The worker acquires the GIL only for the
+//     duration of a snap() call, so the render thread never blocks on
+//     Python.
 //   * A Python-side helper module `_dxs_cam` is installed lazily on first
-//     sample; it caches CameraCtrl / WorldBattle refs inside the
-//     interpreter so we don't walk gc.get_objects() every tick.
+//     sample; it caches CameraCtrl / WorldManager / LagMgr / Avatar /
+//     UnitManager refs inside the interpreter so we don't walk
+//     gc.get_objects() every tick.
+//   * The helper prints a compact text protocol back through
+//     PythonBridge::exec_and_collect; the matrices it ships are the REAL
+//     view (world-to-camera) and projection matrices, so widgets can
+//     project world points on the C++ side without any engine round-trip.
+//     See Snapshot::project() and scripts/verify_matrix.py for the proof.
+//   * Per-uid velocity is EMA-smoothed across ticks so widgets can
+//     dead-reckon positions between sampler ticks
+//     (Snapshot::predict_position()).
 class CameraSampler {
 public:
     static CameraSampler& instance();
 
     struct Snapshot {
         bool                  camera_ready = false;
-        std::array<float, 16> view{};          // row-major, as printed by math3d.matrix.get(r,c)
+        // Row-major. `view` is world-to-camera (the true view matrix, obtained
+        // via cam.transformation.inverse() on the Python side). `proj` is
+        // cam.projection_matrix. `view_proj = view * proj` — suitable for
+        // world-space → clip-space multiplication on the render thread.
+        std::array<float, 16> view{};
         std::array<float, 16> proj{};
-        std::array<float, 16> view_proj{};     // precomputed view * proj for convenience
+        std::array<float, 16> view_proj{};
         Vec3                  cam_pos{};
         Vec3                  cam_forward{};
         Vec3                  cam_right{};
@@ -69,16 +77,35 @@ public:
                                       // 5=BOX 6=DOOR 7=WOOD 8=PANEL 9=CUPBOARD
                                       // 10=CAVE 11=CROW 12=SWITCH 510=SPIRIT
             Vec3          pos{};
+            // EMA-smoothed world-space velocity (units/sec). Populated from
+            // successive ticks by the sampler — widgets can extrapolate with
+            // pos + vel * age_seconds() for dead-reckoning between ticks.
+            Vec3          vel{};
         };
         std::vector<Unit>     units;
 
-        // Keyed by whatever uid the caller supplied to request_world_to_screen.
-        std::unordered_map<std::uint64_t, std::pair<float, float>> screen;
-
-        double                sample_time   = 0.0;  // ImGui::GetTime() at sample
+        double                sample_time   = 0.0;  // CameraSampler::now() at sample
         int                   sample_count  = 0;    // monotonic
         double                last_duration = 0.0;  // seconds blocked in Python
         std::string           last_error;           // empty if last tick was clean
+
+        // Seconds since this snapshot was produced, on the monotonic clock
+        // exposed by CameraSampler::now(). 0 before the first sample.
+        double age_seconds() const;
+
+        // World-space → pixel coordinates using view_proj and the supplied
+        // viewport. Returns nullopt if the point is behind the camera
+        // (clip.w <= 0) or the snapshot has no valid matrices yet.
+        //
+        // Match for NeoX3/dwrg verified in scripts/verify_matrix.py: engine
+        // uses DX-style Y-down screen, so we remap ndc_y via (1 - ndc_y)/2.
+        std::optional<std::pair<float, float>> project(
+            Vec3 world, float viewport_w, float viewport_h) const;
+
+        // Dead-reckon a unit's position to `at_time` on CameraSampler::now()
+        // axis, using its recorded EMA velocity. Falls back to the raw
+        // position when `at_time` is <= sample_time or the velocity is zero.
+        Vec3 predict_position(const Unit& u, double at_time) const;
     };
 
     // Cheap snapshot copy. Call from render thread.
@@ -89,10 +116,12 @@ public:
     // ImGui-free clock diverging from ImGui::GetTime().
     static double now();
 
-    // Register world positions the widgets want projected on the NEXT tick.
-    // Replaces the current request set — callers should re-submit their
-    // full set each frame (this is what widgets naturally do anyway).
-    void request_world_to_screen(std::vector<std::pair<std::uint64_t, Vec3>> pts);
+    // DEPRECATED. Previously queued points for engine-side projection that
+    // completed one tick later; now C++ projects directly from view_proj
+    // in the same frame via Snapshot::project(). Retained as a no-op so
+    // downstream code compiles during the transition.
+    [[deprecated("use Snapshot::project() instead")]]
+    void request_world_to_screen(std::vector<std::pair<std::uint64_t, Vec3>>) {}
 
     // Lifecycle — start the background sampling thread. Render thread
     // must never block on Python execution, so the sampler runs on its
@@ -113,16 +142,24 @@ public:
 private:
     CameraSampler() = default;
     void sample_now();
-    bool parse_output(const std::string& text, Snapshot& out) const;
     void diff_and_emit_events(const Snapshot& prev, const Snapshot& next);
     void worker_loop();
 
     mutable std::mutex                                    mtx_;
     Snapshot                                              latest_{};
-    std::vector<std::pair<std::uint64_t, Vec3>>           request_;
     bool                                                  helper_installed_ = false;
+
+    // Persistent per-uid state used to compute velocity across ticks. Kept
+    // out of Snapshot because we rewrite Snapshot wholesale each sample; the
+    // sampler patches vel into each new snapshot's units from this table.
+    struct UnitState {
+        Vec3   pos{};
+        Vec3   vel{};
+        double t = 0.0;
+    };
+    std::unordered_map<std::uint64_t, UnitState>          unit_state_;
     std::atomic<bool>                                     enabled_{true};
-    std::atomic<double>                                   interval_{1.0 / 15.0};
+    std::atomic<double>                                   interval_{1.0 / 30.0};
 
     // Worker thread + shutdown signalling.
     std::thread                                           worker_;

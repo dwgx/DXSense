@@ -8,7 +8,9 @@ namespace dxs::splash {
 // returns false once done; after that draw() is a no-op.
 
 void begin();
+void begin_exit(); // Trigger the cinematic fade-out sequence for uninject
 bool active();
+bool is_exit();    // Check if the current splash is the exit sequence
 void draw();
 
 }  // namespace dxs::splash

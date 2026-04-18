@@ -22,6 +22,13 @@ public:
     // Called from DLL_PROCESS_DETACH or on user request. Safe to call twice.
     void stop();
 
+    // Async self-eject — spawns a worker thread that waits for the current
+    // frame to settle, calls stop() to remove every hook, then
+    // FreeLibraryAndExitThread on our own module. Returns immediately so
+    // the caller (a UI button handler) doesn't unload itself mid-click.
+    // After the worker runs, the process is free to reinject a fresh DLL.
+    void request_eject();
+
     bool running() const noexcept { return running_.load(std::memory_order_acquire); }
     void* module_handle() const noexcept { return module_; }
 

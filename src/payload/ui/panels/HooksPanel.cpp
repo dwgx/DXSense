@@ -12,7 +12,7 @@ void HooksPanel::draw() {
     ImGui::TextWrapped("%s", L("hooks.intro").data());
     ImGui::PopStyleColor();
 
-    ImGui::Dummy(ImVec2(0, 10));
+    ImGui::Dummy(ImVec2(0, theme::space_md));
 
     if (ImGui::BeginTable("##hooks", 4,
                           ImGuiTableFlags_RowBg |

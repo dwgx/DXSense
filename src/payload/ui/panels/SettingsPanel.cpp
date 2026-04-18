@@ -1,9 +1,13 @@
 #include "SettingsPanel.hpp"
 
 #include "core/Config.hpp"
+#ifndef DXS_PREVIEW
+#include "core/Engine.hpp"
+#endif
 #include "core/Keybinds.hpp"
 #include "core/Localization.hpp"
 #include "ui/framework/ClickGui.hpp"
+#include "ui/framework/Splash.hpp"
 #include "ui/framework/Theme.hpp"
 
 #include <imgui.h>
@@ -17,79 +21,113 @@ void SettingsPanel::draw() {
     auto& cfg = Config::instance();
     auto& loc = Localization::instance();
 
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
-    ImGui::TextWrapped("%s", L("overview.intro").data());
+    theme::section_label("PREFERENCES");
+    ImGui::Dummy(ImVec2(0, theme::space_xs));
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+    ImGui::TextWrapped("Preferences and keybind configuration for DXSense.");
     ImGui::PopStyleColor();
 
-    ImGui::Dummy(ImVec2(0, 14));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
 
     // Language ----------------------------------------------------------------
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::TextUnformatted(L("settings.language").data());
-    ImGui::PopStyleColor();
+    theme::section_label(L("settings.language"));
+    ImGui::Dummy(ImVec2(0, theme::space_xs));
 
     struct Opt { const char* code; const char* label; };
     constexpr Opt langs[] = {
         {"en",    "English"},
-        {"zh-CN", "简体中文"},
+        {"zh-CN", "\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87"},
     };
 
     const auto current = std::string(loc.language());
     for (const Opt& o : langs) {
         const bool active = (current == o.code);
         ImGui::PushStyleColor(ImGuiCol_Button,
-                              active ? theme::accent_soft : theme::bg_surface);
+                              active ? theme::surface_ctn_highest : theme::surface_ctn);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                              active ? theme::surface_ctn_highest : theme::surface_ctn_high);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, theme::surface_ctn_highest);
         if (ImGui::Button(o.label, ImVec2(120, 30))) {
             loc.set_language(o.code);
-            ClickGui::instance().toast(std::string(o.label) + " ✓");
+            ClickGui::instance().toast(std::string(o.label) + " \xe2\x9c\x93");
         }
-        ImGui::PopStyleColor();
+        ImGui::PopStyleColor(3);
         ImGui::SameLine();
     }
     ImGui::NewLine();
 
-    ImGui::Dummy(ImVec2(0, 14));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
     ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, 14));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
 
     // Keybind editor ----------------------------------------------------------
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::TextUnformatted("KEYBINDS");
-    ImGui::PopStyleColor();
-    ImGui::Dummy(ImVec2(0, 4));
+    theme::section_label("KEYBINDS");
+    ImGui::Dummy(ImVec2(0, theme::space_xs));
     Keybinds::instance().draw_editor();
 
-    ImGui::Dummy(ImVec2(0, 14));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
     ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, 14));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
 
-    // Config file location -----------------------------------------------------
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
-    ImGui::TextUnformatted("CONFIG FILE");
-    ImGui::PopStyleColor();
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
+    // Config file location ---------------------------------------------------
+    theme::section_label("CONFIG FILE");
+    ImGui::Dummy(ImVec2(0, theme::space_xs));
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
     ImGui::TextWrapped("%s", cfg.path().string().c_str());
     ImGui::PopStyleColor();
 
-    ImGui::Dummy(ImVec2(0, 10));
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, theme::space_lg));
 
-    // Reset button ------------------------------------------------------------
-    if (ImGui::Button(L("settings.reset").data(), ImVec2(200, 30))) {
-        ImGui::OpenPopup("##reset_confirm");
+    // Actions -----------------------------------------------------------------
+    theme::section_label("ACTIONS");
+    ImGui::Dummy(ImVec2(0, theme::space_sm));
+
+    // Reset to defaults
+    if (theme::ghost_button("Restore defaults", ImVec2(160, 32))) {
+        theme::dialog_open("settings.reset");
     }
-    if (ImGui::BeginPopupModal("##reset_confirm", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted(L("settings.reset_confirm").data());
-        ImGui::Dummy(ImVec2(0, 10));
-        if (ImGui::Button(L("common.run").data(), ImVec2(100, 28))) {
-            cfg.erase_all();
-            loc.set_language("en");
-            ClickGui::instance().toast("settings reset");
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(100, 28))) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
+    if (theme::dialog_draw(theme::DialogSpec{
+        "settings.reset",
+        "Reset all settings?",
+        "This will erase your saved configuration (keybinds, language, "
+        "module states) and restore everything to factory defaults. "
+        "The overlay will reload.",
+        "Reset",
+        "Cancel",
+        theme::DialogKind::Danger,
+    })) {
+        cfg.erase_all();
+        cfg.flush();
+        ClickGui::instance().toast("Settings restored to defaults");
+    }
+
+    ImGui::SameLine(0, theme::space_md);
+
+    // Uninject (eject DLL)
+    if (theme::danger_button("Uninject DLL", ImVec2(140, 32))) {
+        theme::dialog_open("settings.eject");
+    }
+
+    if (theme::dialog_draw(theme::DialogSpec{
+        "settings.eject",
+        "Uninject DXSense?",
+        "This will remove all hooks, restore the original window procedure, "
+        "and unload DXSense.dll from the game process. "
+        "You can re-inject later.",
+        "Uninject",
+        "Cancel",
+        theme::DialogKind::Danger,
+    })) {
+#ifndef DXS_PREVIEW
+        // We will trigger the splash in the Engine flow or here? 
+        // Best to trigger here before Engine rips it out.
+        splash::begin_exit();
+        Engine::instance().request_eject();
+#else
+        splash::begin_exit();
+#endif
     }
 }
 

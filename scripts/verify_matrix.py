@@ -53,8 +53,13 @@ proj = mat16(cam.projection_matrix)
 # camera world position). The matrix that maps world -> view space is the
 # inverse of that. The engine's world_to_screen() does the inverse internally,
 # so for a side-by-side check we need the inverse too.
-cam_world = cam.transformation            # camera-to-world
-view_inv  = cam.transformation.inverse()   # world-to-camera (the actual view)
+#
+# CRITICAL: math3d.matrix.inverse() is IN-PLACE (docstring: "结果存放到 self")
+# and returns None. Calling it on cam.transformation directly would corrupt
+# the engine's live camera pose. Always copy first via the copy-ctor.
+cam_world = cam.transformation
+view_inv  = math3d.matrix(cam.transformation)
+view_inv.inverse()
 view_inv_m = mat16(view_inv)
 
 # Viewport — engine's world_to_screen returns already-in-pixels, but to map

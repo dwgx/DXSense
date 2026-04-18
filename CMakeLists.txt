@@ -24,3 +24,4 @@ include(cmake/Dependencies.cmake)
 
 add_subdirectory(src/payload)
 add_subdirectory(src/injector)
+add_subdirectory(src/preview)

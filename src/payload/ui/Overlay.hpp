@@ -23,11 +23,12 @@ public:
 private:
     Overlay() = default;
 
-    // Default hidden — the splash briefly announces attachment; the user
-    // explicitly presses the overlay.toggle bind (INS) to open the ClickGui.
-    // Starting visible on attach used to eat game input immediately, which
-    // felt like a freeze.
-    bool visible_ = false;
+    // Default visible — injection is a deliberate act and user expects the
+    // overlay to open immediately. Previous default-hidden caused a state
+    // desync: ClickGui.visible_ defaults to true so HudManager skipped HUD
+    // rendering (thinking ClickGui was painted) while Overlay::draw skipped
+    // ClickGui painting (Overlay.visible_=false) — nothing got drawn.
+    bool visible_ = true;
     int  frame_   = 0;
 
     friend class Engine;   // so set_visible() update flows through ClickGui too

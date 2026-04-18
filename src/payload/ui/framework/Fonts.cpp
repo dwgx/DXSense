@@ -81,19 +81,20 @@ void load() {
         base_path.string().c_str(), 15.0f, &cfg_base, ui_base_ranges());
 
     // --- CJK ------------------------------------------------------------------
-    // DengXian Light (Dengl.ttf) — Microsoft's modern Chinese UI font; lighter
-    // and cleaner than the default YaHei. Full ChineseSimplifiedCommon range.
-    const auto deng_l = windir_font(L"Dengl.ttf");
-    const auto deng   = windir_font(L"Deng.ttf");
-    const auto& cjk = std::filesystem::exists(deng_l) ? deng_l :
-                      std::filesystem::exists(deng)   ? deng   : std::filesystem::path();
+    // Microsoft YaHei (msyh.ttc/ttf) — Standard Windows Chinese UI font.
+    // Extremely readable at 16px. Replaces DengXian which renders terribly jagged
+    // on un-scaled DX11 contexts.
+    const auto msyh_tc  = windir_font(L"msyh.ttc");
+    const auto msyh_ttf = windir_font(L"msyh.ttf");
+    const auto& cjk = std::filesystem::exists(msyh_tc)  ? msyh_tc :
+                      std::filesystem::exists(msyh_ttf) ? msyh_ttf : std::filesystem::path();
     if (!cjk.empty()) {
         ImFontConfig cfg_cjk;
         cfg_cjk.MergeMode           = true;
-        cfg_cjk.OversampleH         = 2;
-        cfg_cjk.OversampleV         = 1;
-        cfg_cjk.PixelSnapH          = true;
-        cfg_cjk.RasterizerMultiply  = 1.00f;
+        cfg_cjk.OversampleH         = 2; // Force 2x scaling for CJK anti-aliasing
+        cfg_cjk.OversampleV         = 2;
+        cfg_cjk.PixelSnapH          = false; // Disabled to smoothly position on float boundaries
+        cfg_cjk.RasterizerMultiply  = 1.10f; // Slight bump for pure white readability
         cfg_cjk.GlyphOffset         = ImVec2(0, 1);
         // ChineseFull covers all ~21K CJK Unified Ideographs. We pay a
         // larger atlas (~4K x 4K) in exchange for never rendering tofu on

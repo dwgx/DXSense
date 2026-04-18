@@ -51,7 +51,7 @@ void MemoryPanel::draw() {
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
     ImGui::TextWrapped("%s", L("memory.intro").data());
     ImGui::PopStyleColor();
-    ImGui::Dummy(ImVec2(0, 8));
+    ImGui::Dummy(ImVec2(0, theme::space_sm));
 
     // Control row -------------------------------------------------------------
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_faded);
@@ -92,7 +92,7 @@ void MemoryPanel::draw() {
         ImGui::PopStyleColor();
     }
 
-    ImGui::Dummy(ImVec2(0, 8));
+    ImGui::Dummy(ImVec2(0, theme::space_sm));
 
     // Hex dump with safe read. IsBadReadPtr is the classic "just check" — we
     // don't need a precise VirtualQuery because we render page-by-page anyway.

@@ -15,6 +15,7 @@ namespace dxs {
 // toggle state machinery is shared.
 class EspWidget : public IHudWidget {
 public:
+    EspWidget();   // pulls persisted settings from Config
     std::string_view id()           const override { return "esp"; }
     std::string_view name()         const override { return L("hud.widget_esp"); }
     ImVec2           default_size() const override { return ImVec2(0, 0); }
@@ -24,12 +25,25 @@ public:
     void             draw_settings() override;
 
 private:
-    bool  show_hunters_    = true;
-    bool  show_survivors_  = true;
-    bool  show_props_      = false;   // off by default — too noisy otherwise
-    bool  show_distance_   = true;
-    bool  show_box_        = true;    // small screen-space box around marker
-    float max_distance_    = 80.0f;   // metres — skip beyond this
+    // Tracer origin — where the line starts from. Bottom is the classic
+    // "radar antenna" feel, Top is the "dropping signal" style, Centre
+    // keeps it screen-anchored, Crosshair roots each line at viewport
+    // middle (most minimal). int stored so Config round-trips cleanly.
+    enum TracerOrigin : int { TracerBottom = 0, TracerTop = 1,
+                              TracerCentre = 2, TracerCrosshair = 3 };
+
+    bool  show_hunters_       = true;
+    bool  show_survivors_     = true;
+    bool  show_props_         = false;    // off by default — too noisy otherwise
+    bool  show_distance_      = true;
+    bool  show_box_           = true;     // screen-space box around marker
+    bool  show_silhouette_    = false;    // filled body shape — off by default
+    bool  show_tracer_        = true;     // line from origin to unit
+    bool  show_dot_           = false;    // centre marker dot
+    bool  hunter_proximity_   = true;     // bright red when hunter is close
+    int   tracer_origin_      = TracerBottom;
+    float silhouette_alpha_   = 0.55f;    // fill opacity for silhouettes
+    float max_distance_       = 180.0f;   // metres — skip beyond this
 };
 
 }  // namespace dxs

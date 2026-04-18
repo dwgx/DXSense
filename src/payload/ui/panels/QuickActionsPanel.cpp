@@ -5,7 +5,6 @@
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/Theme.hpp"
 
-#include <algorithm>
 #include <imgui.h>
 
 namespace dxs {
@@ -54,7 +53,10 @@ constexpr Action k_actions[] = {
 
 void QuickActionsPanel::draw() {
     const bool ready = PythonBridge::instance().ready();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
 
+    theme::section_label("SCRIPT SNIPPETS");
+    ImGui::Dummy(ImVec2(0, theme::space_xs));
     ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
     ImGui::TextWrapped(
         "Each button runs the shown snippet inside the game's Python interpreter. "
@@ -64,52 +66,46 @@ void QuickActionsPanel::draw() {
     ImGui::Dummy(ImVec2(0, theme::space_sm));
 
     if (!ready) {
+        theme::badge(theme::Status::Warn, "Python bridge offline");
+        ImGui::SameLine(0, theme::space_sm);
         theme::status_chip(theme::Status::Warn,
-                           "Python bridge not attached — buttons are disabled.");
+                           "buttons disabled until CPython exports are attached");
         ImGui::Dummy(ImVec2(0, theme::space_sm));
     }
 
-    const float avail   = ImGui::GetContentRegionAvail().x;
-    const int cols = std::max(1,
-        int((avail + theme::card_gap) / (theme::card_min_w + theme::card_gap)));
-    const float col_w = (avail - (cols - 1) * theme::card_gap) / cols;
-    const float run_w = theme::space_xxl + theme::space_xl + theme::space_sm;
+    const float run_w  = 64.0f;
 
-    ImGui::BeginTable("##qa", cols, ImGuiTableFlags_NoBordersInBody);
-    int idx = 0;
-    for (const Action& a : k_actions) {
-        if ((idx % cols) == 0) ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(idx % cols);
+    theme::card_grid(std::begin(k_actions), std::end(k_actions), theme::card_h_md,
+        [&](const Action& a, const theme::CardGridCell& c) {
+        dl->AddRectFilled(c.tl, c.br,
+                          theme::to_u32(theme::surface_ctn), theme::radius_lg);
+        dl->AddRect(c.tl, c.br,
+                    theme::to_u32(theme::outline), theme::radius_lg, 0, 1.0f);
 
-        ImGui::PushID(idx);
-        ImGui::BeginChild("##card", ImVec2(col_w, theme::card_h_md), false);
-
-        ImDrawList*  dl = ImGui::GetWindowDrawList();
-        const ImVec2 p0 = ImGui::GetWindowPos();
-        const ImVec2 p1 = p0 + ImGui::GetWindowSize();
-        dl->AddRectFilled(p0, p1, theme::to_u32(theme::bg_surface), theme::radius_lg);
-        dl->AddRectFilled(p0, p0 + ImVec2(theme::card_stripe_w, theme::card_h_md),
-                          theme::to_u32(theme::accent), theme::radius_lg,
-                          ImDrawFlags_RoundCornersLeft);
-
-        ImGui::SetCursorPos(ImVec2(theme::card_pad_x, theme::card_pad_y));
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_primary);
+        ImGui::SetCursorScreenPos(c.tl + ImVec2(theme::card_pad_x, theme::card_pad_y));
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface);
         ImGui::SetWindowFontScale(theme::scale_header);
         ImGui::TextUnformatted(a.label);
-        ImGui::SetWindowFontScale(1.00f);
+        ImGui::SetWindowFontScale(theme::scale_default);
         ImGui::PopStyleColor();
 
-        ImGui::SetCursorPos(ImVec2(theme::card_pad_x,
-                                   theme::card_pad_y + theme::space_xl));
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::text_muted);
-        ImGui::SetWindowFontScale(theme::scale_body);
-        ImGui::TextWrapped("%s", a.subtitle);
-        ImGui::SetWindowFontScale(1.00f);
+        ImGui::SetCursorScreenPos(c.tl + ImVec2(
+            theme::card_pad_x,
+            theme::card_pad_y + ImGui::GetTextLineHeight() + theme::space_xs));
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::on_surface_muted);
+        ImGui::PushTextWrapPos(c.br.x - theme::card_pad_x - run_w - theme::space_sm);
+        ImGui::TextUnformatted(a.subtitle);
+        ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
 
-        ImGui::SetCursorPos(ImVec2(col_w - theme::card_pad_x - run_w,
-                                   theme::card_h_md - theme::card_pad_y - theme::control_h_sm));
+        ImGui::SetCursorScreenPos(c.tl + ImVec2(
+            c.w - theme::card_pad_x - run_w,
+            theme::card_h_md - theme::card_pad_y - theme::control_h_sm));
         ImGui::BeginDisabled(!ready);
+        ImGui::PushStyleColor(ImGuiCol_Button,        theme::primary_container);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::surface_ctn_highest);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  theme::surface_ctn_highest);
+        ImGui::PushStyleColor(ImGuiCol_Text,          theme::on_surface);
         if (ImGui::Button("Run", ImVec2(run_w, theme::control_h_sm))) {
             if (auto* repl = python_repl_panel()) {
                 repl->submit_external(a.code, /*echo_prompt=*/true);
@@ -117,13 +113,9 @@ void QuickActionsPanel::draw() {
                 ClickGui::instance().toast("snippet → REPL");
             }
         }
+        ImGui::PopStyleColor(4);
         ImGui::EndDisabled();
-
-        ImGui::EndChild();
-        ImGui::PopID();
-        ++idx;
-    }
-    ImGui::EndTable();
+    });
 }
 
 }  // namespace dxs

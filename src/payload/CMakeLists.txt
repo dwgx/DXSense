@@ -10,6 +10,7 @@ add_library(dxsense SHARED
     game/CameraSampler.cpp
     game/GameMemory.cpp
     hook/HookManager.cpp
+    hook/InputGuard.cpp
     hook/WndProcHook.cpp
     render/Dx11Backend.cpp
     scripting/PythonBridge.cpp
@@ -25,6 +26,9 @@ add_library(dxsense SHARED
     ui/hud/widgets/StatsWidget.cpp
     ui/panels/EntitiesPanel.cpp
     ui/panels/HooksPanel.cpp
+    ui/panels/HudPanel.cpp
+    ui/panels/AcObservatoryPanel.cpp
+    ui/panels/InteractionFatherPanel.cpp
     ui/panels/MatrixPanel.cpp
     ui/panels/ModulesPanel.cpp
     ui/panels/MemoryPanel.cpp
@@ -34,6 +38,8 @@ add_library(dxsense SHARED
     ui/panels/RaycastPanel.cpp
     ui/panels/RpcTracerPanel.cpp
     ui/panels/SettingsPanel.cpp
+    ui/panels/VelocityLabPanel.cpp
+    ui/panels/VulnLabPanel.cpp
 )
 
 set_target_properties(dxsense PROPERTIES
