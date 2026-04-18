@@ -6,6 +6,11 @@ add_executable(dxs_preview WIN32
     ../payload/core/Localization.cpp
     ../payload/core/Logger.cpp
     ../payload/core/RemoteBridge.cpp
+    ../payload/core/procedure/Loom.cpp
+    ../payload/core/procedure/Pin.cpp
+    ../payload/core/procedure/Tick.cpp
+    ../payload/core/procedure/procedures/AutoDecode.cpp
+    ../payload/core/procedure/procedures/SpeedOverride.cpp
     ../payload/game/CameraSampler.cpp
     ../payload/game/GameMemory.cpp
     ../payload/hook/HookManager.cpp

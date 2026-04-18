@@ -5,6 +5,9 @@
 #include "Localization.hpp"
 #include "Logger.hpp"
 #include "RemoteBridge.hpp"
+#include "core/procedure/Loom.hpp"
+#include "core/procedure/procedures/AutoDecode.hpp"
+#include "core/procedure/procedures/SpeedOverride.hpp"
 #include "game/CameraSampler.hpp"
 #include "game/GameMemory.hpp"
 #include "hook/HookManager.hpp"
@@ -118,6 +121,34 @@ void Engine::start(void* this_module) {
     // Camera sampler runs on its OWN thread so Python GIL contention never
     // stalls the render pipeline. Must start after PythonBridge is ready.
     CameraSampler::instance().start();
+
+    // Procedure Fabric — install drivers so intents reach real subsystems.
+    // Every procedure's Tick.python(...) eventually flushes through here.
+    procedure::Loom::instance().set_python_driver(
+        [](const std::string& snippet, const std::string& /*origin*/) {
+            // Discard stdout — procedures fire-and-forget. Errors surface
+            // on next weave if the snippet caused a module to go missing.
+            PythonBridge::instance().exec_and_collect(snippet);
+        });
+    // Bind first-wave procedures. Registration order determines default
+    // card ordering within a domain.
+    procedure::Loom::instance().bind<procedure::SpeedOverride>();
+    procedure::Loom::instance().bind<procedure::AutoDecode>();
+
+    procedure::Loom::instance().set_event_driver(
+        [](const std::string& channel,
+           const std::string& payload,
+           const std::string& origin) {
+            // EventLog expects a JSON kv body. Procedure-emitted payloads
+            // are free-form; wrap them as a "payload" string plus the
+            // originating procedure handle so log consumers can filter.
+            std::string body = R"("from":")";
+            body.append(origin);
+            body.append(R"(","payload":")");
+            body.append(payload);
+            body.append(R"(")");
+            EventLog::instance().emit(channel, body);
+        });
 }
 
 void Engine::attach_window(HWND hwnd) {

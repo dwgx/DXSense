@@ -3,6 +3,7 @@
 #include "core/Config.hpp"
 #include "core/Keybinds.hpp"
 #include "core/Logger.hpp"
+#include "core/procedure/Loom.hpp"
 #include "game/CameraSampler.hpp"
 #include "ui/framework/ClickGui.hpp"
 #include "ui/framework/Splash.hpp"
@@ -104,6 +105,12 @@ void Overlay::draw() {
     // Refresh camera state before widgets draw so radar / matrix panel read
     // the same sample this frame. Sampler throttles internally (20 Hz default).
     CameraSampler::instance().on_frame();
+
+    // Loom weaves every engaged procedure. Happens BEFORE panels paint so
+    // a procedure that flipped phase on this frame is reflected in its
+    // card without a one-frame lag.
+    procedure::Loom::instance().advance(ImGui::GetIO().DeltaTime);
+
     if (!splash::active()) {
         HudManager::instance().draw();        // always on top of the game
         ClickGui::instance().draw();
