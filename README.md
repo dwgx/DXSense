@@ -4,9 +4,9 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner.svg?t=1c9c7b6849ec" />
-  <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg?t=1c9c7b6849ec" />
-  <img src="docs/assets/banner.svg?t=1c9c7b6849ec" width="100%" alt="DXSense — 第五人格 DX11/ImGui 歪瓜式早期实验记录" />
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner.svg?t=1f52792d81dd" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg?t=1f52792d81dd" />
+  <img src="docs/assets/banner.svg?t=1f52792d81dd" width="100%" alt="DXSense — 第五人格 DX11/ImGui 歪瓜式早期实验记录" />
 </picture>
 
 <br/>
