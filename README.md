@@ -1,5 +1,24 @@
 # DXSense
 
+<!-- dwgx-banner:BEGIN -->
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner.svg?t=97bf27f37902" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg?t=97bf27f37902" />
+  <img src="docs/assets/banner.svg?t=97bf27f37902" width="100%" alt="DXSense — 第五人格 DX11/ImGui 歪瓜式早期实验记录" />
+</picture>
+
+<br/>
+
+C++ · NOASSERTION · ★4
+
+[docs](https://github.com/dwgx/DXSense/tree/main/docs) · [releases](https://github.com/dwgx/DXSense/releases)
+
+</div>
+<!-- dwgx-banner:END -->
+
+
 > **状态：项目已终止（Project Terminated）。仓库仅作存档。**
 > **Status: TERMINATED. This repository is preserved as an archive only.**
 
